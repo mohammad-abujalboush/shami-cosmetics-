@@ -105,15 +105,22 @@ const strings = {
     DUPLICATE: 'هذه القيمة مستخدمة مسبقًا.',
     RATE_LIMITED: 'محاولات كثيرة خلال وقت قصير. حاولي بعد قليل.',
     STORE_CLOSED: 'المتجر مغلق حاليًا ولا يستقبل طلبات جديدة.',
+    INVALID_INPUT: 'بعض البيانات المدخلة غير صحيحة. راجعي الحقول وحاولي مرة أخرى.',
+    IN_USE: 'لا يمكن الحذف لأن هذا العنصر مرتبط ببيانات أخرى.',
+    TEXT_TOO_LONG: 'النص أطول من المسموح.',
 
     // Cart & stock
     EMPTY_CART: 'السلة فارغة.',
+    INVALID_CART: 'حدث خلل في السلة. حدّثي الصفحة وحاولي مرة أخرى.',
+    INVALID_QUANTITY: 'الكمية غير صحيحة.',
     VARIANT_NOT_FOUND: 'أحد المنتجات لم يعد متوفرًا.',
     VARIANT_INACTIVE: 'أحد المنتجات لم يعد متوفرًا.',
     OUT_OF_STOCK: 'نفذت الكمية من أحد المنتجات في سلتك.',
     INSUFFICIENT_STOCK: 'الكمية المطلوبة من أحد المنتجات أكبر من المتوفر.',
 
     // Checkout
+    INVALID_NAME: 'أدخلي الاسم الكامل (حرفان على الأقل).',
+    INVALID_ADDRESS: 'أدخلي المنطقة وتفاصيل العنوان بشكل كامل.',
     INVALID_PHONE: 'رقم الهاتف غير صحيح.',
     INVALID_GOVERNORATE: 'المحافظة المختارة غير متاحة للتوصيل.',
     INVALID_PAYMENT_METHOD: 'طريقة الدفع غير متاحة.',
@@ -133,6 +140,10 @@ const strings = {
     CANNOT_CANCEL: 'لا يمكن إلغاء الطلب في حالته الحالية.',
     INVALID_TRANSITION: 'لا يمكن نقل الطلب إلى هذه الحالة.',
     PAYMENT_NOT_VERIFIED: 'لا يمكن تسليم الطلب لشركة التوصيل قبل تأكيد الدفع.',
+    ORDER_CANCELLED: 'هذا الطلب ملغي.',
+    ALREADY_PAID: 'تم تأكيد دفع هذا الطلب مسبقًا.',
+    PROOF_REQUIRED: 'أرفقي صورة إيصال التحويل أو أدخلي رقم المرجع.',
+    INVALID_PROOF: 'تعذّر العثور على الإيصال المرفوع. أعيدي رفع الصورة.',
     RECEIPT_ALREADY_UPLOADED: 'تم رفع إيصال التحويل مسبقًا.',
     FILE_TOO_LARGE: 'حجم الملف كبير جدًا.',
     FILE_TYPE_INVALID: 'نوع الملف غير مدعوم. استخدمي صورة.',
@@ -140,9 +151,15 @@ const strings = {
     // Reviews
     REVIEW_EXISTS: 'أضفتِ تقييمًا لهذا الطلب من قبل.',
     ORDER_NOT_DELIVERED: 'يمكنك التقييم بعد استلام الطلب.',
+    INVALID_RATING: 'اختاري تقييمًا من 1 إلى 5 نجوم.',
 
-    // Staff
+    // Admin (neutral wording)
     USER_NOT_FOUND: 'لا يوجد حساب بهذا البريد الإلكتروني.',
+    INVALID_ROLE: 'الدور المحدد غير صحيح.',
+    CANNOT_REMOVE_SELF: 'لا يمكن إزالة صلاحية المالك عن حسابك.',
+    INVALID_SLUG: 'رابط الصفحة يجب أن يحتوي على أحرف إنجليزية أو أرقام.',
+    OFFER_OVERLAP: 'يوجد عرض فعّال آخر على نفس التصنيف في هذه الفترة.',
+    INVALID_DATE_RANGE: 'الفترة الزمنية غير صحيحة.',
 
     // Auth (mapped from Supabase auth error codes as AUTH_<CODE>)
     AUTH_INVALID_CREDENTIALS: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',

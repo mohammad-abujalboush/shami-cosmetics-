@@ -28,7 +28,8 @@
 
   /* Extensions (derived from the brand palette) */
   --ink-2: #2A2118;                 /* demo's dark gradient stop */
-  --gold-deep: #8A6A2A;             /* gold for small text on cream — passes WCAG AA (4.7:1) */
+  --gold-deep: #8A6A2A;             /* small gold text + primary button bg (cream text) — WCAG AA 4.7:1.
+                                       --gold stays for large text, borders and decoration. */
   --surface: #FFFFFF;               /* input fields */
   --line-strong: rgba(184,146,63,0.5);
   --success: #2F6B45;  --success-bg: #E4F0E6;
@@ -153,7 +154,7 @@ hr.rule{ border:none; border-top:1px solid var(--line); margin:0; }
   background:transparent; color: var(--ink); text-align:center; white-space:nowrap;
   transition: background-color .3s ease, color .3s ease, border-color .3s ease, transform .3s ease, box-shadow .3s ease;
 }
-.btn.primary{ background: var(--gold); color: var(--cream); box-shadow: var(--shadow-gold); }
+.btn.primary{ background: var(--gold-deep); color: var(--cream); box-shadow: var(--shadow-gold); }
 .btn.dark{ background: var(--ink); color: var(--cream); }
 .btn.ghost{ border-color: var(--ink); color: var(--ink); }
 .btn.outline{ border-color: var(--ink); color: var(--ink); }
@@ -162,7 +163,7 @@ hr.rule{ border:none; border-top:1px solid var(--line); margin:0; }
 .btn.link{ padding:0; border:0; min-height:0; color: var(--gold-deep); text-decoration:underline; text-underline-offset:4px; }
 @media (hover:hover){
   .btn.primary:hover{ background: var(--ink); transform: translateY(-3px); }
-  .btn.dark:hover{ background: var(--gold); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(184,146,63,0.35); }
+  .btn.dark:hover{ background: var(--gold-deep); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(184,146,63,0.35); }
   .btn.ghost:hover{ border-color: var(--gold); color: var(--gold-deep); }
   .btn.outline:hover{ background: var(--ink); color: var(--cream); }
   .btn.light:hover{ background: var(--gold-pale); }
@@ -238,7 +239,7 @@ hr.rule{ border:none; border-top:1px solid var(--line); margin:0; }
   background: var(--ink); color: var(--gold-light);
   font-size:10.5px; font-weight:700; padding:5px 12px; border-radius: var(--radius-pill);
 }
-.prod-badge.sale{ background: var(--gold); color: var(--cream); }
+.prod-badge.sale{ background: var(--gold-deep); color: var(--cream); }
 .prod-body{ padding:20px 22px; display:flex; flex-direction:column; flex:1; }
 .prod-title{ font-size:15.5px; font-weight:700; margin:0 0 6px; }
 .prod-title a::after{ content:''; position:absolute; inset:0; } /* whole card clickable */
@@ -521,11 +522,11 @@ nav.links + .nav-actions{ margin-inline-start:0; }
   padding:9px 18px; border-radius: var(--radius-pill); background: var(--ink); color: var(--cream);
   transition: all .3s ease;
 }
-@media (hover:hover){ .nav-account:hover{ background: var(--gold); transform: translateY(-2px); box-shadow:0 8px 20px rgba(184,146,63,0.35); } }
+@media (hover:hover){ .nav-account:hover{ background: var(--gold-deep); transform: translateY(-2px); box-shadow:0 8px 20px rgba(184,146,63,0.35); } }
 .cart-count{
   position:absolute; inset-block-start:2px; inset-inline-end:0;
   min-width:19px; height:19px; padding:0 5px; border-radius: var(--radius-pill);
-  background: var(--gold); color: var(--cream); font-size:11px; font-weight:800; line-height:19px; text-align:center;
+  background: var(--gold-deep); color: var(--cream); font-size:11px; font-weight:800; line-height:19px; text-align:center;
   font-variant-numeric: tabular-nums;
 }
 .nav-toggle{ display:none; }

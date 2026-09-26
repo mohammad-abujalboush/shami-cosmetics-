@@ -193,6 +193,11 @@ const POSTGREST_CODES = {
   PGRST116: 'NOT_FOUND',
   42501: 'NOT_AUTHORIZED',
   23505: 'DUPLICATE',
+  '23P01': 'OFFER_OVERLAP', // exclusion constraint (one active offer per category)
+  23503: 'IN_USE',          // foreign key (e.g. deleting a category that has products)
+  23514: 'INVALID_INPUT',   // check constraint
+  23502: 'INVALID_INPUT',   // not null
+  '22P02': 'INVALID_INPUT', // invalid text representation
 };
 
 // Turns any Supabase / network / thrown error into an AppError with a code from strings.errors.
