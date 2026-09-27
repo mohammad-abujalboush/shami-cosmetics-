@@ -57,6 +57,7 @@ alter table stock_movements      enable row level security;
 alter table reviews              enable row level security;
 alter table quiz_questions       enable row level security;
 alter table quiz_options         enable row level security;
+alter table order_lookup_failures enable row level security;  -- no policies: functions only
 
 -- (TRUNCATE ignores RLS — the privileges section at the end grants it to no API role.)
 

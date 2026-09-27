@@ -2,7 +2,8 @@
 
 These SQL tests prove the security and pricing rules in `01`–`04` hold. Run them in the Supabase **SQL Editor** after the setup files:
 - **Fresh install:** `01` → `02` → `03` → `04` → `05`.
-- **Project set up before the grants fix:** also run `upgrade_01_names.sql`, then `02b_grants.sql`.
+- **Existing project:** apply every `upgrade_*.sql` it hasn't had yet, in order, then `02b_grants.sql` once at the end. (`upgrade_01_names.sql`, then `upgrade_02_refunds_lookups_proofs.sql`.)
+- The tests never assume tables are empty. They work with real data or the dev seed (`06_dev_seed.sql`) installed. Fixture coupon codes start with `T9-`, and fixture rows use fixed ids 900001+.
 
 - **Step 0** installs a small `test` schema (helpers and fixtures). **Step 99** removes it.
 - Every test block runs inside `begin; … rollback;`, so **nothing it does is kept**.
@@ -46,6 +47,17 @@ exception when others then
   if sqlerrm like 'FAIL:%' then raise; end if;
   if sqlerrm <> p_code then raise exception 'FAIL: expected %, got "%" (%) for: %', p_code, sqlerrm, sqlstate, p_sql; end if;
   raise notice 'PASS: % → %', p_sql, p_code;
+end $$;
+
+-- Statement must RETURN {"error": "<code>"} (track_order / cancel_own_order keep failed attempts, so they don't raise).
+create or replace function test.expect_result_error(p_sql text, p_code text) returns void language plpgsql as $$
+declare v jsonb;
+begin
+  execute p_sql into v;
+  if v ->> 'error' is distinct from p_code then
+    raise exception 'FAIL: expected result {"error": "%"}, got % for: %', p_code, left(coalesce(v::text, 'null'), 120), p_sql;
+  end if;
+  raise notice 'PASS: % → {"error": "%"}', p_sql, p_code;
 end $$;
 
 -- Statement must fail with this SQLSTATE (42501 = permission denied / RLS violation).
@@ -115,22 +127,23 @@ begin
     (900015, 900003, '100ml',    'T-P100', 30, 5,   false),
     (900016, 900005, 'قطعة',     'T-NV',   2,  5,   false);
 
-  insert into public.offers (name_ar, category_id, quantity, bundle_price, starts_at, ends_at)
-  values ('3 صابونات بـ10', v_soap, 3, 10, now() - interval '1 day', now() + interval '1 day');
+  insert into public.offers (id, name_ar, category_id, quantity, bundle_price, starts_at, ends_at)
+  overriding system value
+  values (900001, '3 صابونات بـ10', v_soap, 3, 10, now() - interval '1 day', now() + interval '1 day');
 
   insert into public.coupons (code, type, value, min_order, max_uses, used_count, max_per_phone,
                               starts_at, ends_at, combinable_with_offers, active, max_discount) values
-    ('test10',  'percent', 10,  0,  null, 0, null, null, null, true,  true,  null),  -- stored as TEST10
-    ('FIXED5',  'fixed',   5,   50, null, 0, null, null, null, true,  true,  null),
-    ('ONCE',    'fixed',   1,   0,  1,    1, null, null, null, true,  true,  null),
-    ('ONE',     'fixed',   1,   0,  1,    0, null, null, null, true,  true,  null),
-    ('PHONE1',  'fixed',   1,   0,  null, 0, 1,    null, null, true,  true,  null),
-    ('OLD',     'fixed',   1,   0,  null, 0, null, now() - interval '2 days', now() - interval '1 day', true, true, null),
-    ('SOON',    'fixed',   1,   0,  null, 0, null, now() + interval '1 day', null, true, true, null),
-    ('OFF',     'fixed',   1,   0,  null, 0, null, null, null, true,  false, null),
-    ('NOCOMBO', 'percent', 10,  0,  null, 0, null, null, null, false, true,  null),
-    ('BIG50',   'percent', 50,  0,  null, 0, null, null, null, true,  true,  3),
-    ('HUGE',    'fixed',   100, 0,  null, 0, null, null, null, true,  true,  null);
+    ('t9-test10',  'percent', 10,  0,  null, 0, null, null, null, true,  true,  null),  -- stored as T9-TEST10
+    ('T9-FIXED5',  'fixed',   5,   50, null, 0, null, null, null, true,  true,  null),
+    ('T9-ONCE',    'fixed',   1,   0,  1,    1, null, null, null, true,  true,  null),
+    ('T9-ONE',     'fixed',   1,   0,  1,    0, null, null, null, true,  true,  null),
+    ('T9-PHONE1',  'fixed',   1,   0,  null, 0, 1,    null, null, true,  true,  null),
+    ('T9-OLD',     'fixed',   1,   0,  null, 0, null, now() - interval '2 days', now() - interval '1 day', true, true, null),
+    ('T9-SOON',    'fixed',   1,   0,  null, 0, null, now() + interval '1 day', null, true, true, null),
+    ('T9-OFF',     'fixed',   1,   0,  null, 0, null, null, null, true,  false, null),
+    ('T9-NOCOMBO', 'percent', 10,  0,  null, 0, null, null, null, false, true,  null),
+    ('T9-BIG50',   'percent', 50,  0,  null, 0, null, null, null, true,  true,  3),
+    ('T9-HUGE',    'fixed',   100, 0,  null, 0, null, null, null, true,  true,  null);
 end $$;
 
 grant usage on schema test to anon, authenticated;
@@ -343,7 +356,7 @@ end $$;
 
 -- Offer switched off → no discount; unknown/inactive governorate is reported
 reset role;
-update offers set active = false where name_ar = '3 صابونات بـ10';
+update offers set active = false where id = 900001;
 select test.login(null);
 do $$
 declare r jsonb;
@@ -380,64 +393,64 @@ do $$
 declare r jsonb;
 begin
   -- Case-insensitive, Arabic digits accepted, stored uppercase
-  r := calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'test١٠');
-  perform test.assert(r->'coupon'->>'code' = 'TEST10' and (r->>'coupon_discount')::numeric = 1,
-                      'test١٠ → TEST10, 10% of 10 = 1');
+  r := calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 't9-test١٠');
+  perform test.assert(r->'coupon'->>'code' = 'T9-TEST10' and (r->>'coupon_discount')::numeric = 1,
+                      't9-test١٠ → T9-TEST10 (case-insensitive, Arabic digits), 10% of 10 = 1');
   perform test.assert((r->>'total')::numeric = 12, 'total 10 − 1 + 3 = 12');
 
   -- Applied AFTER the bundle discount: 10% of 24, not of 32
-  r := calculate_cart('[{"variant_id":900011,"qty":4},{"variant_id":900012,"qty":3}]', 1, 'TEST10');
+  r := calculate_cart('[{"variant_id":900011,"qty":4},{"variant_id":900012,"qty":3}]', 1, 'T9-TEST10');
   perform test.assert((r->>'coupon_discount')::numeric = 2.4 and (r->>'total')::numeric = 24.6,
                       'coupon after bundle: 24 − 2.4 + 3 = 24.6');
 
   -- Percent cap
-  r := calculate_cart('[{"variant_id":900014,"qty":1}]', 1, 'BIG50');
+  r := calculate_cart('[{"variant_id":900014,"qty":1}]', 1, 'T9-BIG50');
   perform test.assert((r->>'coupon_discount')::numeric = 3, '50% of 20 capped by max_discount 3');
 
   -- Never negative
-  r := calculate_cart('[{"variant_id":900011,"qty":1}]', 1, 'HUGE');
+  r := calculate_cart('[{"variant_id":900011,"qty":1}]', 1, 'T9-HUGE');
   perform test.assert((r->>'coupon_discount')::numeric = 5 and (r->>'total')::numeric = 3,
                       'fixed 100 on 5 → discount 5, pay delivery only');
 
   -- Reported, not raised, by calculate_cart
-  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'FIXED5')->'coupon'->>'error' = 'COUPON_MIN_ORDER', 'min_order 50 > 10');
-  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'ONCE')->'coupon'->>'error' = 'COUPON_USAGE_LIMIT', 'max_uses reached');
-  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'OLD')->'coupon'->>'error' = 'COUPON_EXPIRED', 'expired');
-  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'SOON')->'coupon'->>'error' = 'COUPON_NOT_STARTED', 'not started');
-  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'OFF')->'coupon'->>'error' = 'COUPON_INACTIVE', 'inactive');
-  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'NOPE')->'coupon'->>'error' = 'COUPON_NOT_FOUND', 'unknown code');
-  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":3}]', 1, 'NOCOMBO')->'coupon'->>'error' = 'COUPON_NOT_COMBINABLE', 'not combinable with an active bundle');
-  perform test.assert((calculate_cart('[{"variant_id":900014,"qty":1}]', 1, 'NOCOMBO')->>'coupon_discount')::numeric = 2, 'NOCOMBO works without a bundle');
+  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'T9-FIXED5')->'coupon'->>'error' = 'COUPON_MIN_ORDER', 'min_order 50 > 10');
+  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'T9-ONCE')->'coupon'->>'error' = 'COUPON_USAGE_LIMIT', 'max_uses reached');
+  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'T9-OLD')->'coupon'->>'error' = 'COUPON_EXPIRED', 'expired');
+  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'T9-SOON')->'coupon'->>'error' = 'COUPON_NOT_STARTED', 'not started');
+  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'T9-OFF')->'coupon'->>'error' = 'COUPON_INACTIVE', 'inactive');
+  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":2}]', 1, 'T9-NOPE')->'coupon'->>'error' = 'COUPON_NOT_FOUND', 'unknown code');
+  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":3}]', 1, 'T9-NOCOMBO')->'coupon'->>'error' = 'COUPON_NOT_COMBINABLE', 'not combinable with an active bundle');
+  perform test.assert((calculate_cart('[{"variant_id":900014,"qty":1}]', 1, 'T9-NOCOMBO')->>'coupon_discount')::numeric = 2, 'T9-NOCOMBO works without a bundle');
 end $$;
 
 -- place_order raises the coupon error instead of silently dropping it
-select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":2}]', '0790000031', 'cod', 'FIXED5'))$$, 'COUPON_MIN_ORDER');
+select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":2}]', '0790000031', 'cod', 'T9-FIXED5'))$$, 'COUPON_MIN_ORDER');
 
 -- max_per_phone = 1
-select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000032', 'cod', 'PHONE1'));
-select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '+962 79 000 0032', 'cod', 'PHONE1'))$$, 'COUPON_PHONE_LIMIT');
-select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000032', 'cod', 'phone1'))$$, 'COUPON_PHONE_LIMIT');
+select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000032', 'cod', 'T9-PHONE1'));
+select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '+962 79 000 0032', 'cod', 'T9-PHONE1'))$$, 'COUPON_PHONE_LIMIT');
+select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000032', 'cod', 't9-phone1'))$$, 'COUPON_PHONE_LIMIT');
 do $$ begin
-  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":1}]', 1, 'PHONE1', '0790000032')->'coupon'->>'error' = 'COUPON_PHONE_LIMIT',
+  perform test.assert(calculate_cart('[{"variant_id":900011,"qty":1}]', 1, 'T9-PHONE1', '0790000032')->'coupon'->>'error' = 'COUPON_PHONE_LIMIT',
                       'calculate_cart also checks the phone when given');
 end $$;
-select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000033', 'cod', 'PHONE1'));  -- another phone is fine
+select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000033', 'cod', 'T9-PHONE1'));  -- another phone is fine
 
 -- max_uses = 1: first order uses it, second is refused, cancelling releases it
 do $$
 declare r jsonb;
 begin
-  r := place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000034', 'cod', 'ONE'));
+  r := place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000034', 'cod', 'T9-ONE'));
   perform set_config('test.one', r->>'order_number', true);
 end $$;
-select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000035', 'cod', 'ONE'))$$, 'COUPON_USAGE_LIMIT');
+select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000035', 'cod', 'T9-ONE'))$$, 'COUPON_USAGE_LIMIT');
 select cancel_own_order(current_setting('test.one'), '0790000034');
 
 reset role;
 do $$ begin
-  perform test.assert((select used_count from coupons where code = 'ONE') = 0, 'cancelled order released the coupon use');
-  perform test.assert((select used_count from coupons where code = 'PHONE1') = 2, 'PHONE1 used twice (two phones)');
-  perform test.assert((select code from coupons where code = 'TEST10') = 'TEST10', 'code stored uppercase');
+  perform test.assert((select used_count from coupons where code = 'T9-ONE') = 0, 'cancelled order released the coupon use');
+  perform test.assert((select used_count from coupons where code = 'T9-PHONE1') = 2, 'T9-PHONE1 used twice (two phones)');
+  perform test.assert((select code from coupons where code = 'T9-TEST10') = 'T9-TEST10', 'code stored uppercase');
 end $$;
 rollback;
 ```
@@ -533,17 +546,17 @@ select test.expect_rows($$select update_order_status(current_setting('test.cliq_
 
 -- Customer cancellation: only while status = new
 select test.login(null);
-select test.expect_error($$select cancel_own_order(current_setting('test.cod')::text, '0790000041')$$, 'ORDER_NOT_FOUND');  -- token is not an order number
+select test.expect_result_error($$select cancel_own_order(current_setting('test.cod')::text, '0790000041')$$, 'ORDER_NOT_FOUND');  -- token is not an order number
 do $$
 declare r jsonb;
 begin
   r := place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000045'));
-  perform test.expect_error(format('select cancel_own_order(%L, %L)', r->>'order_number', '0790000099'), 'ORDER_NOT_FOUND');
+  perform test.expect_result_error(format('select cancel_own_order(%L, %L)', r->>'order_number', '0790000099'), 'ORDER_NOT_FOUND');
   perform test.assert(cancel_own_order(replace(r->>'order_number', 'SH-', ''), '٠٧٩٠٠٠٠٠٤٥')->>'status' = 'cancelled',
                       'guest cancels a new order with number + phone (Arabic digits ok)');
   perform test.expect_error(format('select cancel_own_order(%L, %L)', r->>'order_number', '0790000045'), 'CANNOT_CANCEL');
 end $$;
-select test.expect_error($$select cancel_own_order('SH-99999999', '0790000042')$$, 'ORDER_NOT_FOUND');
+select test.expect_result_error($$select cancel_own_order('SH-99999999', '0790000042')$$, 'ORDER_NOT_FOUND');
 
 -- Logged-in customer: own orders only
 select test.login('00000000-0000-0000-0000-00000000000c');
@@ -625,9 +638,13 @@ select test.expect_rows($$update product_variants set price = 6 where id = 90001
 select test.expect_error($$select add_staff('nobody@test.local', 'staff')$$, 'USER_NOT_FOUND');
 select test.expect_error($$select add_staff('owner@test.local', 'staff')$$, 'CANNOT_REMOVE_SELF');
 select test.expect_error($$select remove_staff('00000000-0000-0000-0000-00000000000a')$$, 'CANNOT_REMOVE_SELF');
-do $$ begin
+do $$
+declare v_before integer := jsonb_array_length(list_staff());
+begin
   perform add_staff('Customer@Test.local', 'staff');
-  perform test.assert(jsonb_array_length(list_staff()) = 3, 'owner promotes by email (case-insensitive)');
+  perform test.assert(jsonb_array_length(list_staff()) = v_before + 1, 'owner promotes by email (case-insensitive): +1 staff');
+  perform test.assert(exists (select 1 from jsonb_array_elements(list_staff()) e
+                              where e->>'email' = 'customer@test.local' and e->>'role' = 'staff'), 'promoted account listed as staff');
 end $$;
 rollback;
 ```
@@ -767,13 +784,16 @@ rollback;
 ```sql
 begin;
 select test.fixture();
+-- Quiz ranking must not depend on other soaps in the project: hide non-fixture products for this
+-- transaction only (rolled back at the end).
+update products set active = false where id not between 900001 and 900099;
 select test.login(null);
 
 do $$ begin
   perform test.assert((select count(*) from products where id between 900001 and 900005) = 3,
                       'guest sees only visible products (not inactive, not without active variants)');
   perform test.assert(not exists (select 1 from product_variants where id in (900015, 900016)), 'inactive variants hidden');
-  perform test.assert((select count(*) from offers where name_ar = '3 صابونات بـ10') = 1, 'running offer visible');
+  perform test.assert((select count(*) from offers where id = 900001) = 1, 'running offer visible');
   perform test.assert((select store_open from settings) is true, 'public settings columns readable');
   perform test.assert(not exists (select 1 from governorates where id = 12), 'inactive governorate hidden');
   perform test.assert(quiz_recommend(array['OILY'])->0->>'slug' = 'test-soap-b', 'quiz: oily → soap B first');
@@ -798,17 +818,18 @@ begin
   perform update_order_status(v_id, 'confirmed');
   perform update_order_status(v_id, 'with_courier');
   perform update_order_status(v_id, 'delivered');
+  perform set_config('test.rev_id', v_id::text, true);
 end $$;
 select test.login(null);
 select test.expect_error($$select submit_review(current_setting('test.rev')::uuid, 6)$$, 'INVALID_RATING');
 select submit_review(current_setting('test.rev')::uuid, 5, 'ممتاز');
 select test.expect_error($$select submit_review(current_setting('test.rev')::uuid, 4)$$, 'REVIEW_EXISTS');
-select test.expect_rows($$select 1 from reviews where display_name = 'عميلة'$$, 0);   -- pending → hidden
+select test.expect_rows($$select 1 from reviews where order_id = current_setting('test.rev_id')::uuid$$, 0);   -- pending → hidden
 select test.expect_sqlstate($$update reviews set status = 'approved'$$, '42501');
 select test.login('00000000-0000-0000-0000-00000000000b');
-select test.expect_rows($$update reviews set status = 'approved', featured = true where display_name = 'عميلة'$$, 1);
+select test.expect_rows($$update reviews set status = 'approved', featured = true where order_id = current_setting('test.rev_id')::uuid$$, 1);
 select test.login(null);
-select test.expect_rows($$select 1 from reviews where display_name = 'عميلة' and featured$$, 1);
+select test.expect_rows($$select 1 from reviews where order_id = current_setting('test.rev_id')::uuid and featured$$, 1);
 
 -- Customer: own profile (created by trigger, phone normalized) and own addresses only
 select test.login('00000000-0000-0000-0000-00000000000c');
@@ -907,6 +928,8 @@ rollback;
 
 ## 12. Grants (privileges of the API roles)
 
+> **SQL Editor warning:** this block creates a throw-away table (`zz_grant_probe`) to check that new tables get no API privileges by default, so Supabase shows *"table without RLS"*. Choose **Run without RLS**. That's expected: the table is rolled back at the end of the block and never exists.
+
 Privileges decide which operations a role may even attempt. RLS then decides which rows. This block checks the privileges directly, so it also catches drift between `02b_grants.sql` and the grant sections in `02`/`03`/`04`.
 
 ```sql
@@ -964,7 +987,7 @@ declare
     'is_staff', 'is_owner', 'product_is_visible', 'western_digits', 'normalize_ar', 'product_search_text',
     'normalize_phone', 'slugify', 'normalize_tags', 'normalize_person_name', 'is_valid_person_name'];
   v_auth_fns text[] := v_anon_fns || array[
-    'cancel_my_order', 'update_order_status', 'verify_payment', 'adjust_stock',
+    'cancel_my_order', 'update_order_status', 'verify_payment', 'mark_refunded', 'adjust_stock',
     'add_staff', 'remove_staff', 'list_staff', 'get_admin_settings', 'dashboard_stats'];
   v_anon_read text[] := array[
     'settings', 'governorates', 'categories', 'products', 'product_images', 'product_variants',
@@ -1022,6 +1045,175 @@ do $$ begin
                       and not has_function_privilege('anon', 'public.zz_grant_probe_fn()', 'EXECUTE'),
                       'new functions get no EXECUTE by default');
 end $$;
+rollback;
+```
+
+---
+
+## 13. Refunds (refund_due → refunded)
+
+A paid CliQ order that is cancelled or returned becomes `refund_due`. The owner settles it with `mark_refunded`. Every payment change is logged in the status history.
+
+```sql
+begin;
+select test.fixture();
+select test.login(null);
+do $$
+declare r jsonb;
+begin
+  r := place_order(test.payload('[{"variant_id":900014,"qty":1}]', '0790000101', 'cliq')); perform set_config('test.a', r->>'public_token', true);
+  r := place_order(test.payload('[{"variant_id":900014,"qty":1}]', '0790000102', 'cliq')); perform set_config('test.b', r->>'public_token', true);
+  r := place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000103'));         perform set_config('test.c', r->>'public_token', true);
+  r := place_order(test.payload('[{"variant_id":900014,"qty":1}]', '0790000104', 'cliq')); perform set_config('test.d', r->>'public_token', true);
+end $$;
+
+select test.login('00000000-0000-0000-0000-00000000000a');  -- owner
+do $$
+declare
+  a uuid := (select id from orders where public_token = current_setting('test.a')::uuid);
+  b uuid := (select id from orders where public_token = current_setting('test.b')::uuid);
+  c uuid := (select id from orders where public_token = current_setting('test.c')::uuid);
+  d uuid := (select id from orders where public_token = current_setting('test.d')::uuid);
+  v_due_before integer := (dashboard_stats(current_date, current_date)->>'refund_due_count')::integer;
+begin
+  perform set_config('test.a_id', a::text, true);
+
+  -- A: paid, then cancelled → refund_due
+  perform verify_payment(a, true);
+  perform update_order_status(a, 'cancelled', 'إلغاء بطلب العميل');
+  perform test.assert((select payment_status from orders where id = a) = 'refund_due', 'paid CliQ + cancelled → refund_due');
+  perform test.assert(exists (select 1 from order_status_history where order_id = a and to_status = 'cancelled'
+                              and payment_from = 'paid' and payment_to = 'refund_due'), 'cancel row logs paid → refund_due');
+  perform test.assert(exists (select 1 from order_status_history where order_id = a and from_status = 'new' and to_status = 'new'
+                              and payment_from = 'awaiting_transfer' and payment_to = 'paid'), 'verify_payment logged');
+
+  -- B: paid, delivered, returned without restock → refund_due
+  perform verify_payment(b, true);
+  perform update_order_status(b, 'confirmed');
+  perform update_order_status(b, 'with_courier');
+  perform update_order_status(b, 'delivered');
+  perform test.assert((select payment_status from orders where id = b) = 'paid', 'CliQ stays paid on delivery');
+  perform update_order_status(b, 'returned', null, false);
+  perform test.assert((select payment_status from orders where id = b) = 'refund_due', 'paid CliQ + returned → refund_due');
+
+  -- C: COD delivered then returned → stays paid (refund rule is for CliQ only)
+  perform update_order_status(c, 'confirmed');
+  perform update_order_status(c, 'with_courier');
+  perform update_order_status(c, 'delivered');
+  perform update_order_status(c, 'returned');
+  perform test.assert((select payment_status from orders where id = c) = 'paid', 'COD return keeps payment_status = paid');
+  perform test.expect_error(format('select mark_refunded(%L)', c), 'REFUND_NOT_DUE');
+
+  -- D: cancelled before paying; the transfer arrives later → refund_due
+  perform update_order_status(d, 'cancelled');
+  perform test.assert((select payment_status from orders where id = d) = 'awaiting_transfer', 'unpaid CliQ cancel: no refund due');
+  perform verify_payment(d, true);
+  perform test.assert((select payment_status from orders where id = d) = 'refund_due', 'money confirmed for a cancelled order → refund_due');
+
+  perform test.assert((dashboard_stats(current_date, current_date)->>'refund_due_count')::integer = v_due_before + 3,
+                      'dashboard counts refund_due orders (+3)');
+
+  -- Settle A
+  perform test.assert(mark_refunded(a, 'تم التحويل عبر CliQ')->>'payment_status' = 'refunded', 'mark_refunded → refunded');
+  perform test.assert(exists (select 1 from order_status_history where order_id = a and payment_from = 'refund_due'
+                              and payment_to = 'refunded' and note = 'تم التحويل عبر CliQ'
+                              and changed_by = '00000000-0000-0000-0000-00000000000a'), 'refund logged with note and owner');
+  perform test.expect_error(format('select mark_refunded(%L)', a), 'REFUND_NOT_DUE');
+  perform test.assert((dashboard_stats(current_date, current_date)->>'refund_due_count')::integer = v_due_before + 2,
+                      'dashboard refund_due count drops after refund');
+end $$;
+
+-- The customer timeline shows status changes only (payment-only rows hidden)
+select test.login(null);
+do $$ begin
+  perform test.assert((select jsonb_agg(h->>'status') from jsonb_array_elements(get_order_by_token(current_setting('test.a')::uuid)->'history') h)
+                      = '["new", "cancelled"]'::jsonb, 'customer history: new → cancelled only');
+end $$;
+select test.expect_sqlstate($$select mark_refunded(gen_random_uuid())$$, '42501');
+
+select test.login('00000000-0000-0000-0000-00000000000b');  -- staff
+select test.expect_error($$select mark_refunded(current_setting('test.a_id')::uuid)$$, 'NOT_AUTHORIZED');
+rollback;
+```
+
+---
+
+## 14. Order lookup brute-force guard
+
+`track_order` and `cancel_own_order` reject an order number with `RATE_LIMITED` after 10 failed attempts in an hour, even if the phone is then correct. A failed lookup *returns* `{"error": "ORDER_NOT_FOUND"}` instead of raising, so the failed attempt is kept.
+
+```sql
+begin;
+select test.fixture();
+select test.login(null);
+do $$
+declare r jsonb; i integer;
+begin
+  r := place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000111'));
+  perform set_config('test.n1', r->>'order_number', true);
+  r := place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000112'));
+  perform set_config('test.n2', r->>'order_number', true);
+
+  -- Order 1: 9 failures, the correct phone still works, the 10th failure locks it
+  for i in 1..9 loop
+    perform test.expect_result_error(format('select track_order(%L, %L)', current_setting('test.n1'), '0790000199'), 'ORDER_NOT_FOUND');
+  end loop;
+  perform test.assert(track_order(current_setting('test.n1'), '0790000111')->>'order_number' = current_setting('test.n1'),
+                      'after 9 failures the right phone still works');
+  perform test.expect_result_error(format('select cancel_own_order(%L, %L)', lower(current_setting('test.n1')), '0790000198'), 'ORDER_NOT_FOUND');
+
+  -- Order 2: many successful lookups never lock it
+  for i in 1..15 loop
+    perform track_order(current_setting('test.n2'), '0790000112');
+  end loop;
+  perform test.assert(track_order(current_setting('test.n2'), '0790000112') ? 'order_number', 'successful lookups are not counted');
+end $$;
+
+select test.expect_error($$select track_order(current_setting('test.n1'), '0790000111')$$, 'RATE_LIMITED');
+select test.expect_error($$select track_order(replace(current_setting('test.n1'), 'SH-', ''), '0790000111')$$, 'RATE_LIMITED');
+select test.expect_error($$select cancel_own_order(current_setting('test.n1'), '0790000111')$$, 'RATE_LIMITED');
+select test.expect_sqlstate($$select 1 from order_lookup_failures$$, '42501');
+
+-- Failures older than an hour no longer count
+reset role;
+update order_lookup_failures set created_at = now() - interval '61 minutes' where order_number = current_setting('test.n1');
+select test.login(null);
+do $$ begin
+  perform test.assert(track_order(current_setting('test.n1'), '0790000111') ? 'order_number', 'lock expires after an hour');
+end $$;
+rollback;
+```
+
+---
+
+## 15. Payment proofs: at most 3 files per order
+
+This goes through the real storage policy (an insert into `storage.objects` as the guest role).
+
+```sql
+begin;
+select test.fixture();
+select test.login(null);
+do $$
+declare r jsonb;
+begin
+  r := place_order(test.payload('[{"variant_id":900014,"qty":1}]', '0790000121', 'cliq'));
+  perform set_config('test.p', r->>'public_token', true);
+end $$;
+
+select test.expect_rows($$insert into storage.objects (bucket_id, name) values ('payment-proofs', current_setting('test.p') || '/1.jpg')$$, 1);
+select test.expect_rows($$insert into storage.objects (bucket_id, name) values ('payment-proofs', current_setting('test.p') || '/2.png')$$, 1);
+do $$ begin
+  perform test.assert((get_order_by_token(current_setting('test.p')::uuid)->>'can_upload_proof')::boolean, 'with 2 files, can_upload_proof = true');
+end $$;
+select test.expect_rows($$insert into storage.objects (bucket_id, name) values ('payment-proofs', current_setting('test.p') || '/3.webp')$$, 1);
+select test.expect_sqlstate($$insert into storage.objects (bucket_id, name) values ('payment-proofs', current_setting('test.p') || '/4.jpg')$$, '42501');
+do $$ begin
+  perform test.assert(not (get_order_by_token(current_setting('test.p')::uuid)->>'can_upload_proof')::boolean, 'with 3 files, can_upload_proof = false');
+  perform test.assert(not can_upload_payment_proof(current_setting('test.p') || '/5.jpg'), 'policy helper refuses a 4th file');
+end $$;
+-- The receipt can still be attached (it's already uploaded)
+select test.expect_rows($$select attach_payment_proof(current_setting('test.p')::uuid, current_setting('test.p') || '/3.webp')$$, 1);
 rollback;
 ```
 

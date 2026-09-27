@@ -26,7 +26,11 @@ Numbers, currency, dates
 
 Text & copy
 - All UI strings live in /assets/js/strings.ar.js (one object, grouped by page). No hardcoded UI text scattered in HTML/JS. This also makes an English version possible later without a rewrite.
-- Copy is natural Jordanian-friendly Modern Standard Arabic addressed to the customer where the demo does (تسوق، اختار), consistent across pages. Admin panel uses neutral, clear Arabic.
+- Copy is natural Jordanian-friendly Modern Standard Arabic and GENDER-NEUTRAL everywhere (storefront, account, admin, errors, emails, WhatsApp, SQL seed/notices). Rules, in priority order:
+  a) Prefer neutral noun / verbal-noun forms: "إضافة إلى السلة", "إتمام الطلب", "تتبع الطلب", "بدء الاختبار", "يرجى إدخال رقم الهاتف".
+  b) Only where a verb addressed to the customer is unavoidable, use the standard generic masculine form (أدخل، اختر، تسوق) — e.g. "تسوق الآن" only if no noun form reads naturally.
+  c) No feminine-only phrasing anywhere (تسوقي، أدخلي، عميلة، عزيزتي). Use "العميل" / "عملاؤنا" or rephrase.
+  demo.html is the visual reference only; its feminine copy is not to be reused.
 - Never show raw browser or Supabase English errors. Use custom validation (novalidate on forms) with Arabic messages. RPC functions return error CODES (e.g. OUT_OF_STOCK, COUPON_EXPIRED, RATE_LIMITED), and the frontend maps each code to an Arabic message in strings.ar.js.
 - Empty states, loading text, toasts, confirmations, print slips, email templates, and WhatsApp templates are all in Arabic.
 

@@ -19,7 +19,7 @@ alter default privileges revoke execute on functions from public;
 -- ---------------------------------------------------------------------
 create type gender_t       as enum ('men', 'women', 'unisex');
 create type order_status   as enum ('new', 'confirmed', 'with_courier', 'delivered', 'cancelled', 'returned');
-create type payment_status as enum ('unpaid', 'awaiting_transfer', 'awaiting_verification', 'paid', 'refunded');
+create type payment_status as enum ('unpaid', 'awaiting_transfer', 'awaiting_verification', 'paid', 'refund_due', 'refunded');
 create type payment_method as enum ('cod', 'cliq');
 create type staff_role     as enum ('owner', 'staff');
 create type coupon_type    as enum ('percent', 'fixed');
@@ -449,9 +449,23 @@ create table order_status_history (
   note        text,
   changed_by  uuid references auth.users(id) on delete set null,
   by_customer boolean not null default false,
+  -- Payment changes (verify, COD paid on delivery, refund due, refunded). A payment-only event
+  -- has from_status = to_status; customer timelines skip those rows.
+  payment_from payment_status,
+  payment_to   payment_status,
   created_at  timestamptz not null default now()
 );
 create index order_status_history_order_idx on order_status_history (order_id, created_at);
+
+-- Failed order-number + phone lookups (track_order / cancel_own_order brute-force protection).
+-- Written only by _lookup_order_by_number(); no API role can read or write it.
+create table order_lookup_failures (
+  id           bigint generated always as identity primary key,
+  order_number text not null,
+  created_at   timestamptz not null default now()
+);
+create index order_lookup_failures_number_idx on order_lookup_failures (order_number, created_at);
+create index order_lookup_failures_created_idx on order_lookup_failures (created_at);
 
 -- Internal staff notes (kept out of orders so customers can never read them).
 create table order_notes (

@@ -81,7 +81,7 @@ end $$;
 -- ---------------------------------------------------------------------
 -- Function privileges: revoke everything, then grant exactly the API.
 -- Internal helpers (_price_cart, _apply_status_change, _order_public_json, _normalize_cart_items,
--- _set_stock_context, _can_transition) and trigger functions stay callable by NO API role.
+-- _set_stock_context, _can_transition, _lookup_order_by_number) and trigger functions stay callable by NO API role.
 -- ---------------------------------------------------------------------
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on all functions in schema public to service_role;
@@ -111,6 +111,7 @@ grant execute on function
   cancel_my_order(uuid),
   update_order_status(uuid, text, text, boolean),
   verify_payment(uuid, boolean),
+  mark_refunded(uuid, text),
   adjust_stock(bigint, integer, text),
   add_staff(text, text),
   remove_staff(uuid),

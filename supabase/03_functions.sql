@@ -276,14 +276,17 @@ create or replace function _apply_status_change(
   p_order_id uuid, p_new order_status, p_note text, p_restock boolean, p_actor uuid, p_by_customer boolean)
 returns orders language plpgsql security definer set search_path = public as $$
 declare
-  v_order orders%rowtype;
-  v_old   order_status;
+  v_order   orders%rowtype;
+  v_old     order_status;
+  v_old_pay payment_status;
+  v_new_pay payment_status;
 begin
   select * into v_order from orders o where o.id = p_order_id for update;
   if not found then
     raise exception 'ORDER_NOT_FOUND';
   end if;
   v_old := v_order.status;
+  v_old_pay := v_order.payment_status;
 
   if not _can_transition(v_old, p_new) then
     raise exception 'INVALID_TRANSITION';
@@ -317,17 +320,27 @@ begin
     update coupons c set used_count = greatest(c.used_count - 1, 0) where c.id = v_order.coupon_id;
   end if;
 
+  -- Payment follow-ups: COD is paid on delivery; a paid CliQ order that is cancelled or
+  -- returned now owes the customer a refund (the owner settles it with mark_refunded).
+  v_new_pay := case
+    when p_new = 'delivered' and v_order.payment_method = 'cod' then 'paid'
+    when p_new in ('cancelled', 'returned') and v_order.payment_method = 'cliq' and v_old_pay = 'paid' then 'refund_due'
+    else v_old_pay
+  end;
+
   update orders o
   set status         = p_new,
       delivered_at   = case when p_new = 'delivered' then now() else o.delivered_at end,
       cancelled_at   = case when p_new = 'cancelled' then now() else o.cancelled_at end,
-      payment_status = case when p_new = 'delivered' and o.payment_method = 'cod' then 'paid'::payment_status else o.payment_status end,
+      payment_status = v_new_pay,
       paid_at        = case when p_new = 'delivered' and o.payment_method = 'cod' then now() else o.paid_at end
   where o.id = v_order.id
   returning * into v_order;
 
-  insert into order_status_history (order_id, from_status, to_status, note, changed_by, by_customer)
-  values (v_order.id, v_old, p_new, p_note, p_actor, coalesce(p_by_customer, false));
+  insert into order_status_history (order_id, from_status, to_status, note, changed_by, by_customer, payment_from, payment_to)
+  values (v_order.id, v_old, p_new, p_note, p_actor, coalesce(p_by_customer, false),
+          case when v_new_pay is distinct from v_old_pay then v_old_pay end,
+          case when v_new_pay is distinct from v_old_pay then v_new_pay end);
 
   return v_order;
 end $$;
@@ -365,11 +378,14 @@ returns jsonb language sql stable security definer set search_path = public as $
     'history', (
       select coalesce(jsonb_agg(jsonb_build_object('status', h.to_status, 'at', h.created_at)
                                 order by h.created_at, h.id), '[]'::jsonb)
-      from order_status_history h where h.order_id = o.id),
+      from order_status_history h
+      where h.order_id = o.id and h.from_status is distinct from h.to_status),  -- skip payment-only rows
     'payment_proof_submitted', (o.payment_proof_path is not null or o.payment_reference is not null),
     'can_cancel',       o.status = 'new',
     'can_upload_proof', o.payment_method = 'cliq' and o.payment_status = 'awaiting_transfer'
-                        and o.status not in ('cancelled', 'returned'),
+                        and o.status not in ('cancelled', 'returned')
+                        and (select count(*) from storage.objects so
+                             where so.bucket_id = 'payment-proofs' and so.name like o.public_token::text || '/%') < 3,
     'review_submitted', exists (select 1 from reviews r where r.order_id = o.id),
     'can_review',       o.status = 'delivered' and not exists (select 1 from reviews r where r.order_id = o.id),
     -- CliQ transfer details only while the CliQ order is unpaid.
@@ -553,19 +569,45 @@ begin
   return _order_public_json(v_id);
 end $$;
 
+-- Brute-force guard for order-number + phone lookups. Returns the order id, or NULL after
+-- recording a failed attempt. Raises RATE_LIMITED once an order number has 10 failed attempts
+-- within the last hour (successful lookups don't count). Callers must RETURN (not raise) on NULL,
+-- otherwise the recorded failure would be rolled back with the exception.
+create or replace function _lookup_order_by_number(p_order_number text, p_phone text)
+returns uuid language plpgsql volatile security definer set search_path = public as $$
+declare
+  v_number text := upper(btrim(western_digits(p_order_number)));
+  v_id     uuid;
+begin
+  if v_number ~ '^[0-9]+$' then v_number := 'SH-' || v_number; end if;
+  perform pg_advisory_xact_lock(hashtextextended('order_lookup:' || v_number, 0));
+
+  if (select count(*) from order_lookup_failures f
+      where f.order_number = v_number and f.created_at > now() - interval '1 hour') >= 10 then
+    raise exception 'RATE_LIMITED';
+  end if;
+
+  select o.id into v_id from orders o where o.order_number = v_number and o.phone = p_phone;
+  if v_id is null then
+    insert into order_lookup_failures (order_number) values (v_number);
+    delete from order_lookup_failures f where f.created_at < now() - interval '1 day';  -- housekeeping
+  end if;
+  return v_id;
+end $$;
+
 -- Accepts "SH-10001", "sh-10001" or "10001", and any phone format normalize_phone understands.
+-- Not found → returns {"error": "ORDER_NOT_FOUND"} (not raised, so the failed attempt is kept).
 create or replace function track_order(order_number text, phone text)
-returns jsonb language plpgsql stable security definer set search_path = public as $$
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
 #variable_conflict use_column
 declare
-  v_number text := upper(btrim(western_digits(order_number)));
+  v_number text := order_number;
   v_phone  text := normalize_phone(phone);
   v_id     uuid;
 begin
   if v_phone is null then raise exception 'INVALID_PHONE'; end if;
-  if v_number ~ '^[0-9]+$' then v_number := 'SH-' || v_number; end if;
-  select o.id into v_id from orders o where o.order_number = v_number and o.phone = v_phone;
-  if v_id is null then raise exception 'ORDER_NOT_FOUND'; end if;
+  v_id := _lookup_order_by_number(v_number, v_phone);
+  if v_id is null then return jsonb_build_object('error', 'ORDER_NOT_FOUND'); end if;
   return _order_public_json(v_id);
 end $$;
 
@@ -605,18 +647,20 @@ begin
 end $$;
 
 -- Guest cancellation (tracking page): order number + phone, only while status = new.
+-- Same brute-force guard as track_order; not found → returns {"error": "ORDER_NOT_FOUND"}.
 create or replace function cancel_own_order(order_number text, phone text)
 returns jsonb language plpgsql volatile security definer set search_path = public as $$
 #variable_conflict use_column
 declare
-  v_number text := upper(btrim(western_digits(order_number)));
+  v_number text := order_number;
   v_phone  text := normalize_phone(phone);
+  v_id     uuid;
   v_order  orders%rowtype;
 begin
   if v_phone is null then raise exception 'INVALID_PHONE'; end if;
-  if v_number ~ '^[0-9]+$' then v_number := 'SH-' || v_number; end if;
-  select * into v_order from orders o where o.order_number = v_number and o.phone = v_phone for update;
-  if not found then raise exception 'ORDER_NOT_FOUND'; end if;
+  v_id := _lookup_order_by_number(v_number, v_phone);
+  if v_id is null then return jsonb_build_object('error', 'ORDER_NOT_FOUND'); end if;
+  select * into v_order from orders o where o.id = v_id for update;
   if v_order.status <> 'new' then raise exception 'CANNOT_CANCEL'; end if;
   perform _apply_status_change(v_order.id, 'cancelled', null, true, auth.uid(), true);
   return _order_public_json(v_order.id);
@@ -716,7 +760,8 @@ begin
 end $$;
 
 -- Owner only. paid = true confirms the CliQ transfer; false rejects the proof so the
--- customer can upload again.
+-- customer can upload again. Money confirmed for an order that is already cancelled/returned
+-- becomes refund_due. Every change is logged in order_status_history (payment-only row).
 create or replace function verify_payment(order_id uuid, paid boolean)
 returns jsonb language plpgsql volatile security definer set search_path = public as $$
 #variable_conflict use_column
@@ -724,33 +769,64 @@ declare
   v_order_id uuid    := order_id;
   v_paid     boolean := paid;
   v_order    orders%rowtype;
+  v_old_pay  payment_status;
+  v_new_pay  payment_status;
 begin
   if not is_owner() then raise exception 'NOT_AUTHORIZED'; end if;
   select * into v_order from orders o where o.id = v_order_id for update;
   if not found then raise exception 'ORDER_NOT_FOUND'; end if;
   if v_order.payment_method <> 'cliq' then raise exception 'INVALID_PAYMENT_METHOD'; end if;
+  v_old_pay := v_order.payment_status;
 
   if coalesce(v_paid, false) then
-    if v_order.payment_status = 'paid' then raise exception 'ALREADY_PAID'; end if;
-    if v_order.payment_status not in ('awaiting_transfer', 'awaiting_verification') then
+    if v_old_pay = 'paid' then raise exception 'ALREADY_PAID'; end if;
+    if v_old_pay not in ('awaiting_transfer', 'awaiting_verification') then
       raise exception 'INVALID_TRANSITION';
     end if;
+    v_new_pay := case when v_order.status in ('cancelled', 'returned') then 'refund_due' else 'paid' end;
     update orders o
-    set payment_status = 'paid', paid_at = now(), payment_verified_by = auth.uid()
+    set payment_status = v_new_pay, paid_at = now(), payment_verified_by = auth.uid()
     where o.id = v_order.id
     returning * into v_order;
   else
     -- Can't un-verify once the parcel may already be with the courier.
-    if v_order.payment_status not in ('awaiting_verification', 'paid') or v_order.status not in ('new', 'confirmed') then
+    if v_old_pay not in ('awaiting_verification', 'paid') or v_order.status not in ('new', 'confirmed') then
       raise exception 'INVALID_TRANSITION';
     end if;
+    v_new_pay := 'awaiting_transfer';
     update orders o
-    set payment_status = 'awaiting_transfer', paid_at = null, payment_verified_by = auth.uid()
+    set payment_status = v_new_pay, paid_at = null, payment_verified_by = auth.uid()
     where o.id = v_order.id
     returning * into v_order;
   end if;
 
+  insert into order_status_history (order_id, from_status, to_status, changed_by, payment_from, payment_to)
+  values (v_order.id, v_order.status, v_order.status, auth.uid(), v_old_pay, v_new_pay);
+
   return jsonb_build_object('payment_status', v_order.payment_status, 'paid_at', v_order.paid_at);
+end $$;
+
+-- Owner only: the refund owed on a cancelled/returned paid CliQ order has been sent back.
+create or replace function mark_refunded(order_id uuid, note text default null)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_order_id uuid := order_id;
+  v_note     text := nullif(btrim(coalesce(note, '')), '');
+  v_order    orders%rowtype;
+begin
+  if not is_owner() then raise exception 'NOT_AUTHORIZED'; end if;
+  if char_length(coalesce(v_note, '')) > 1000 then raise exception 'TEXT_TOO_LONG'; end if;
+  select * into v_order from orders o where o.id = v_order_id for update;
+  if not found then raise exception 'ORDER_NOT_FOUND'; end if;
+  if v_order.payment_status <> 'refund_due' then raise exception 'REFUND_NOT_DUE'; end if;
+
+  update orders o set payment_status = 'refunded' where o.id = v_order.id returning * into v_order;
+
+  insert into order_status_history (order_id, from_status, to_status, note, changed_by, payment_from, payment_to)
+  values (v_order.id, v_order.status, v_order.status, v_note, auth.uid(), 'refund_due', 'refunded');
+
+  return jsonb_build_object('payment_status', v_order.payment_status);
 end $$;
 
 -- Manual stock adjustment (staff and owner). change > 0 adds, < 0 removes. Always logged.
@@ -899,6 +975,9 @@ begin
           order by pv.stock, p.name_ar
           limit 50
         ) x),
+      -- Outstanding refunds (not date-bound)
+      'refund_due_count',  (select count(*) from orders o where o.payment_status = 'refund_due'),
+      'refund_due_amount', (select coalesce(sum(o.total), 0) from orders o where o.payment_status = 'refund_due'),
       'flagged_cliq_orders', (
         select coalesce(jsonb_agg(to_jsonb(f) order by f.created_at), '[]'::jsonb)
         from (
@@ -936,7 +1015,7 @@ create trigger on_auth_user_created after insert on auth.users
 -- ---------------------------------------------------------------------
 -- Function privileges: revoke everything, then grant exactly the API.
 -- Internal helpers (_price_cart, _apply_status_change, _order_public_json, _normalize_cart_items,
--- _set_stock_context, _can_transition) and trigger functions stay callable by NO API role.
+-- _set_stock_context, _can_transition, _lookup_order_by_number) and trigger functions stay callable by NO API role.
 -- ---------------------------------------------------------------------
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on all functions in schema public to service_role;
@@ -966,6 +1045,7 @@ grant execute on function
   cancel_my_order(uuid),
   update_order_status(uuid, text, text, boolean),
   verify_payment(uuid, boolean),
+  mark_refunded(uuid, text),
   adjust_stock(bigint, integer, text),
   add_staff(text, text),
   remove_staff(uuid),

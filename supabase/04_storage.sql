@@ -3,7 +3,7 @@
 -- Run after 03_functions.sql.
 --
 -- product-images : public read (public bucket URLs), only the owner uploads/changes/deletes.
--- payment-proofs : private. Guests/customers may only INSERT into
+-- payment-proofs : private. Guests/customers may only INSERT (max 3 files per order) into
 --                  <public_token>/<file>.(jpg|jpeg|png|webp|heic|heif) of a CliQ order that is
 --                  still awaiting transfer. Max 5 MB, images only. No one but the owner can read
 --                  (via signed URLs). Staff cannot read. No updates/overwrites.
@@ -33,6 +33,11 @@ begin
     return false;
   end if;
   if lower(v_parts[2]) !~ '^[a-z0-9_-]{1,80}\.(jpe?g|png|webp|heic|heif)$' then
+    return false;
+  end if;
+  -- At most 3 proof files per order.
+  if (select count(*) from storage.objects so
+      where so.bucket_id = 'payment-proofs' and so.name like v_parts[1] || '/%') >= 3 then
     return false;
   end if;
   return exists (

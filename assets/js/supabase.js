@@ -31,12 +31,21 @@ export async function run(queryBuilder) {
 }
 
 // const order = await rpc('place_order', { ... }); throws AppError('OUT_OF_STOCK') etc.
+// Lookups that must persist state on failure (track_order, cancel_own_order record failed
+// attempts for brute-force protection) RETURN { error: 'CODE' } instead of raising; that is
+// thrown here as the same AppError, so callers handle both styles identically.
 export async function rpc(fn, args = {}) {
+  let data;
   try {
-    return await run(requireClient().rpc(fn, args));
+    data = await run(requireClient().rpc(fn, args));
   } catch (err) {
     throw toAppError(err);
   }
+  if (data && typeof data === 'object' && !Array.isArray(data)
+      && typeof data.error === 'string' && Object.keys(data).length === 1) {
+    throw new AppError(data.error);
+  }
+  return data;
 }
 
 export async function getSession() {

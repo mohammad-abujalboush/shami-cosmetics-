@@ -1,6 +1,7 @@
 // All Arabic UI strings, grouped by page/area. No UI text should be hardcoded elsewhere.
 // Placeholders use {name} and are filled by t() in utils.js.
-// Storefront copy addresses the customer in the feminine form; admin copy stays neutral.
+// Copy is gender-neutral (see CLAUDE.md → Text & copy): noun / verbal-noun forms first
+// ("إضافة إلى السلة", "يرجى إدخال…"); generic masculine verb only when unavoidable; never feminine-only.
 
 const strings = {
   meta: {
@@ -51,13 +52,13 @@ const strings = {
 
   footer: {
     about: 'براند أردني متخصص في الصابون التركي الطبي الأصلي وعطور TWINS الفاخرة.',
-    shopTitle: 'تسوقي',
+    shopTitle: 'التسوق',
     allProducts: 'كل المنتجات',
     helpTitle: 'المساعدة',
-    trackOrder: 'تتبعي طلبك',
+    trackOrder: 'تتبع الطلب',
     returns: 'سياسة الاستبدال والإرجاع',
     myAccount: 'حسابي',
-    contactTitle: 'تواصلي معنا',
+    contactTitle: 'التواصل معنا',
     whatsapp: 'واتساب',
     social: {
       instagram: 'إنستغرام',
@@ -69,7 +70,7 @@ const strings = {
   },
 
   whatsapp: {
-    floatLabel: 'تواصلي معنا عبر واتساب',
+    floatLabel: 'التواصل عبر واتساب',
     greeting: 'مرحبًا Shami Cosmetics، عندي استفسار',
   },
 
@@ -85,42 +86,43 @@ const strings = {
 
   validation: {
     required: 'هذا الحقل مطلوب',
-    phoneInvalid: 'رقم الهاتف غير صحيح. أدخلي رقمًا أردنيًا يبدأ بـ 077 أو 078 أو 079',
+    phoneInvalid: 'رقم الهاتف غير صحيح. يجب أن يكون رقمًا أردنيًا يبدأ بـ 077 أو 078 أو 079',
     emailInvalid: 'البريد الإلكتروني غير صحيح',
     minLength: 'يجب ألا يقل عن {min} أحرف',
     passwordMismatch: 'كلمتا المرور غير متطابقتين',
-    numberInvalid: 'أدخلي رقمًا صحيحًا',
+    numberInvalid: 'الرقم المُدخل غير صحيح',
     qtyMax: 'المتوفر {max} فقط',
   },
 
   // Error CODES returned by RPC functions / mapped from Supabase errors → Arabic message.
-  // SQL functions must raise exactly these codes (e.g. RAISE EXCEPTION 'OUT_OF_STOCK').
+  // SQL functions raise exactly these codes (e.g. RAISE EXCEPTION 'OUT_OF_STOCK');
+  // a few lookups return { error: '<CODE>' } instead (see rpc() in supabase.js).
   errors: {
-    UNKNOWN: 'حدث خطأ غير متوقع. حاولي مرة أخرى.',
-    NETWORK: 'تعذّر الاتصال. تحققي من الإنترنت وحاولي مرة أخرى.',
+    UNKNOWN: 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.',
+    NETWORK: 'تعذّر الاتصال. يرجى التحقق من الإنترنت والمحاولة مرة أخرى.',
     CONFIG_MISSING: 'المتجر غير مهيأ بعد. يرجى المحاولة لاحقًا.',
-    SESSION_EXPIRED: 'انتهت الجلسة. سجّلي الدخول مرة أخرى.',
-    NOT_AUTHORIZED: 'ليس لديك صلاحية للقيام بهذا الإجراء.',
+    SESSION_EXPIRED: 'انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى.',
+    NOT_AUTHORIZED: 'لا توجد صلاحية للقيام بهذا الإجراء.',
     NOT_FOUND: 'العنصر المطلوب غير موجود.',
     DUPLICATE: 'هذه القيمة مستخدمة مسبقًا.',
-    RATE_LIMITED: 'محاولات كثيرة خلال وقت قصير. حاولي بعد قليل.',
+    RATE_LIMITED: 'محاولات كثيرة خلال وقت قصير. يرجى المحاولة بعد قليل.',
     STORE_CLOSED: 'المتجر مغلق حاليًا ولا يستقبل طلبات جديدة.',
-    INVALID_INPUT: 'بعض البيانات المدخلة غير صحيحة. راجعي الحقول وحاولي مرة أخرى.',
+    INVALID_INPUT: 'بعض البيانات المدخلة غير صحيحة. يرجى مراجعة الحقول والمحاولة مرة أخرى.',
     IN_USE: 'لا يمكن الحذف لأن هذا العنصر مرتبط ببيانات أخرى.',
     TEXT_TOO_LONG: 'النص أطول من المسموح.',
 
     // Cart & stock
     EMPTY_CART: 'السلة فارغة.',
-    INVALID_CART: 'حدث خلل في السلة. حدّثي الصفحة وحاولي مرة أخرى.',
+    INVALID_CART: 'حدث خلل في السلة. يرجى تحديث الصفحة والمحاولة مرة أخرى.',
     INVALID_QUANTITY: 'الكمية غير صحيحة.',
     VARIANT_NOT_FOUND: 'أحد المنتجات لم يعد متوفرًا.',
     VARIANT_INACTIVE: 'أحد المنتجات لم يعد متوفرًا.',
-    OUT_OF_STOCK: 'نفذت الكمية من أحد المنتجات في سلتك.',
+    OUT_OF_STOCK: 'نفذت الكمية من أحد المنتجات في السلة.',
     INSUFFICIENT_STOCK: 'الكمية المطلوبة من أحد المنتجات أكبر من المتوفر.',
 
     // Checkout
     INVALID_NAME: 'الاسم يجب أن يكون بالأحرف العربية أو الإنجليزية، من 2 إلى 60 حرفًا.',
-    INVALID_ADDRESS: 'أدخلي المنطقة وتفاصيل العنوان بشكل كامل.',
+    INVALID_ADDRESS: 'يرجى إدخال المنطقة وتفاصيل العنوان بشكل كامل.',
     INVALID_PHONE: 'رقم الهاتف غير صحيح.',
     INVALID_GOVERNORATE: 'المحافظة المختارة غير متاحة للتوصيل.',
     INVALID_PAYMENT_METHOD: 'طريقة الدفع غير متاحة.',
@@ -132,44 +134,46 @@ const strings = {
     COUPON_EXPIRED: 'انتهت صلاحية كود الخصم.',
     COUPON_MIN_ORDER: 'قيمة الطلب أقل من الحد الأدنى لاستخدام هذا الكود.',
     COUPON_USAGE_LIMIT: 'تم استخدام هذا الكود للحد الأقصى.',
-    COUPON_PHONE_LIMIT: 'استخدمتِ هذا الكود من قبل.',
+    COUPON_PHONE_LIMIT: 'تم استخدام هذا الكود من قبل لهذا الرقم.',
     COUPON_NOT_COMBINABLE: 'لا يمكن استخدام هذا الكود مع العروض الحالية.',
 
     // Orders & payments
-    ORDER_NOT_FOUND: 'لم نجد طلبًا بهذه البيانات. تأكدي من رقم الطلب ورقم الهاتف.',
+    ORDER_NOT_FOUND: 'لم يتم العثور على طلب بهذه البيانات. يرجى التأكد من رقم الطلب ورقم الهاتف.',
     CANNOT_CANCEL: 'لا يمكن إلغاء الطلب في حالته الحالية.',
     INVALID_TRANSITION: 'لا يمكن نقل الطلب إلى هذه الحالة.',
     PAYMENT_NOT_VERIFIED: 'لا يمكن تسليم الطلب لشركة التوصيل قبل تأكيد الدفع.',
     ORDER_CANCELLED: 'هذا الطلب ملغي.',
     ALREADY_PAID: 'تم تأكيد دفع هذا الطلب مسبقًا.',
-    PROOF_REQUIRED: 'أرفقي صورة إيصال التحويل أو أدخلي رقم المرجع.',
-    INVALID_PROOF: 'تعذّر العثور على الإيصال المرفوع. أعيدي رفع الصورة.',
+    PROOF_REQUIRED: 'يرجى إرفاق صورة إيصال التحويل أو إدخال رقم المرجع.',
+    INVALID_PROOF: 'تعذّر العثور على الإيصال المرفوع. يرجى إعادة رفع الصورة.',
+    PROOF_LIMIT_REACHED: 'تم الوصول إلى الحد الأقصى لعدد صور الإيصال (3 صور).',
     RECEIPT_ALREADY_UPLOADED: 'تم رفع إيصال التحويل مسبقًا.',
     FILE_TOO_LARGE: 'حجم الملف كبير جدًا.',
-    FILE_TYPE_INVALID: 'نوع الملف غير مدعوم. استخدمي صورة.',
+    FILE_TYPE_INVALID: 'نوع الملف غير مدعوم. يُقبل ملف صورة فقط.',
+    REFUND_NOT_DUE: 'لا يوجد مبلغ مستحق للإرجاع على هذا الطلب.',
 
     // Reviews
-    REVIEW_EXISTS: 'أضفتِ تقييمًا لهذا الطلب من قبل.',
-    ORDER_NOT_DELIVERED: 'يمكنك التقييم بعد استلام الطلب.',
-    INVALID_RATING: 'اختاري تقييمًا من 1 إلى 5 نجوم.',
+    REVIEW_EXISTS: 'تمت إضافة تقييم لهذا الطلب من قبل.',
+    ORDER_NOT_DELIVERED: 'التقييم متاح بعد استلام الطلب.',
+    INVALID_RATING: 'يرجى اختيار تقييم من 1 إلى 5 نجوم.',
 
-    // Admin (neutral wording)
+    // Admin
     USER_NOT_FOUND: 'لا يوجد حساب بهذا البريد الإلكتروني.',
     INVALID_ROLE: 'الدور المحدد غير صحيح.',
-    CANNOT_REMOVE_SELF: 'لا يمكن إزالة صلاحية المالك عن حسابك.',
+    CANNOT_REMOVE_SELF: 'لا يمكن إزالة صلاحية المالك عن الحساب الحالي.',
     INVALID_SLUG: 'رابط الصفحة يجب أن يحتوي على أحرف إنجليزية أو أرقام.',
     OFFER_OVERLAP: 'يوجد عرض فعّال آخر على نفس التصنيف في هذه الفترة.',
     INVALID_DATE_RANGE: 'الفترة الزمنية غير صحيحة.',
 
     // Auth (mapped from Supabase auth error codes as AUTH_<CODE>)
     AUTH_INVALID_CREDENTIALS: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
-    AUTH_EMAIL_NOT_CONFIRMED: 'يرجى تأكيد بريدك الإلكتروني أولًا من الرسالة التي وصلتك.',
+    AUTH_EMAIL_NOT_CONFIRMED: 'يرجى تأكيد البريد الإلكتروني أولًا من خلال الرسالة المرسلة إليه.',
     AUTH_USER_ALREADY_EXISTS: 'يوجد حساب مسجّل بهذا البريد الإلكتروني.',
     AUTH_EMAIL_EXISTS: 'يوجد حساب مسجّل بهذا البريد الإلكتروني.',
-    AUTH_WEAK_PASSWORD: 'كلمة المرور ضعيفة. استخدمي 8 أحرف على الأقل.',
+    AUTH_WEAK_PASSWORD: 'كلمة المرور ضعيفة. يجب ألا تقل عن 8 أحرف.',
     AUTH_SAME_PASSWORD: 'كلمة المرور الجديدة يجب أن تختلف عن القديمة.',
-    AUTH_OVER_EMAIL_SEND_RATE_LIMIT: 'أرسلنا رسائل كثيرة مؤخرًا. حاولي بعد قليل.',
-    AUTH_OVER_REQUEST_RATE_LIMIT: 'محاولات كثيرة خلال وقت قصير. حاولي بعد قليل.',
+    AUTH_OVER_EMAIL_SEND_RATE_LIMIT: 'تم إرسال رسائل كثيرة مؤخرًا. يرجى المحاولة بعد قليل.',
+    AUTH_OVER_REQUEST_RATE_LIMIT: 'محاولات كثيرة خلال وقت قصير. يرجى المحاولة بعد قليل.',
   },
 };
 
