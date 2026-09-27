@@ -117,6 +117,23 @@ export function formatPhone(stored) {
   return `${local.slice(0, 3)} ${local.slice(3, 6)} ${local.slice(6)}`;
 }
 
+/* ---------- Person names ---------- */
+
+// Trim + collapse whitespace. Must stay identical to Postgres normalize_person_name(text).
+export function normalizeName(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+// Arabic or Latin letters (incl. accents, tashkeel), spaces, hyphens, apostrophes; 2–60 chars;
+// at least one letter. Must stay identical to Postgres is_valid_person_name(text).
+const NAME_CHARS = /^[A-Za-zÀ-ÖØ-öø-ɏء-غـ-ٰٟ-ۓ '’-]+$/;
+const NAME_LETTER = /[A-Za-zÀ-ÖØ-öø-ɏء-غف-يٱ-ۓ]/;
+
+export function isValidName(value) {
+  const name = normalizeName(value);
+  return name.length >= 2 && name.length <= 60 && NAME_CHARS.test(name) && NAME_LETTER.test(name);
+}
+
 /* ---------- Arabic search normalization ---------- */
 
 // Must stay identical to the Postgres normalize_ar(text) function.

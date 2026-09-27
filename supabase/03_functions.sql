@@ -433,7 +433,7 @@ begin
     raise exception 'INVALID_CART';
   end if;
 
-  v_name    := btrim(coalesce(v_payload ->> 'customer_name', ''));
+  v_name    := normalize_person_name(v_payload ->> 'customer_name');
   v_phone   := normalize_phone(v_payload ->> 'phone');
   v_area    := btrim(coalesce(v_payload ->> 'area', ''));
   v_details := btrim(coalesce(v_payload ->> 'address_details', ''));
@@ -448,7 +448,7 @@ begin
   end if;
 
   -- Field validation
-  if char_length(v_name) not between 2 and 80 then raise exception 'INVALID_NAME'; end if;
+  if not is_valid_person_name(v_name) then raise exception 'INVALID_NAME'; end if;
   if v_phone is null then raise exception 'INVALID_PHONE'; end if;
   if coalesce(v_payload ->> 'governorate_id', '') !~ '^[0-9]{1,4}$' then raise exception 'INVALID_GOVERNORATE'; end if;
   v_gov_id := (v_payload ->> 'governorate_id')::integer;
@@ -921,7 +921,9 @@ returns trigger language plpgsql security definer set search_path = public as $$
 begin
   insert into profiles (id, full_name, phone)
   values (new.id,
-          left(nullif(btrim(new.raw_user_meta_data ->> 'full_name'), ''), 100),
+          -- invalid metadata is dropped (never block sign-up); the customer can fix it in the account page
+          case when is_valid_person_name(new.raw_user_meta_data ->> 'full_name')
+               then normalize_person_name(new.raw_user_meta_data ->> 'full_name') end,
           normalize_phone(new.raw_user_meta_data ->> 'phone'))
   on conflict (id) do nothing;
   return new;
@@ -932,16 +934,19 @@ create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
 
 -- ---------------------------------------------------------------------
--- Execute privileges: nothing by default, then exactly the public API.
--- (Supabase grants EXECUTE on new functions to anon/authenticated by default.)
+-- Function privileges: revoke everything, then grant exactly the API.
+-- Internal helpers (_price_cart, _apply_status_change, _order_public_json, _normalize_cart_items,
+-- _set_stock_context, _can_transition) and trigger functions stay callable by NO API role.
 -- ---------------------------------------------------------------------
 revoke execute on all functions in schema public from public, anon, authenticated;
+grant execute on all functions in schema public to service_role;
 
--- Used inside RLS policies / generated columns → must be executable by the API roles.
+-- Called inside RLS policies, generated columns and triggers that run as the API role.
 grant execute on function
   is_staff(), is_owner(), product_is_visible(bigint),
   western_digits(text), normalize_ar(text), product_search_text(text, text, text[]),
-  normalize_phone(text), slugify(text), normalize_tags(text[])
+  normalize_phone(text), slugify(text), normalize_tags(text[]),
+  normalize_person_name(text), is_valid_person_name(text)
 to anon, authenticated;
 
 -- Public RPCs (guests and customers)
@@ -956,7 +961,7 @@ grant execute on function
   quiz_recommend(text[])
 to anon, authenticated;
 
--- Signed-in only (each checks its own permission inside)
+-- Signed-in only (each checks is_staff() / is_owner() / ownership inside)
 grant execute on function
   cancel_my_order(uuid),
   update_order_status(uuid, text, text, boolean),

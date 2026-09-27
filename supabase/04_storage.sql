@@ -45,7 +45,7 @@ begin
 end $$;
 
 revoke execute on function can_upload_payment_proof(text) from public, anon, authenticated;
-grant execute on function can_upload_payment_proof(text) to anon, authenticated;
+grant execute on function can_upload_payment_proof(text) to anon, authenticated, service_role;
 
 -- ---------- product-images ----------
 drop policy if exists "shami product-images owner insert" on storage.objects;

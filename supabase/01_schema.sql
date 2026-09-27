@@ -7,6 +7,13 @@
 create extension if not exists pg_trgm with schema extensions;
 create extension if not exists btree_gist with schema extensions;
 
+-- Nothing we create is granted to the API roles automatically; every grant is explicit
+-- (see the grants sections at the end of 02, 03, 04 and the standalone 02b_grants.sql).
+alter default privileges in schema public revoke all on tables    from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke all on functions from anon, authenticated;
+alter default privileges revoke execute on functions from public;
+
 -- ---------------------------------------------------------------------
 -- Enums
 -- ---------------------------------------------------------------------
@@ -65,6 +72,23 @@ begin
   if d ~ '^7[789][0-9]{7}$' then return '962' || d; end if;
   return null;
 end $$;
+
+-- Trim + collapse whitespace (JS \s set). Mirrors normalizeName().
+create or replace function normalize_person_name(input text)
+returns text language sql immutable parallel safe set search_path = '' as $$
+  select pg_catalog.btrim(pg_catalog.regexp_replace(coalesce(input, ''),
+    '[\s   -     　﻿]+', ' ', 'g'));
+$$;
+
+-- Customer names: Arabic or Latin letters (incl. accents, tashkeel), spaces, hyphens, apostrophes;
+-- 2–60 characters after normalizing; at least one letter. Mirrors isValidName().
+create or replace function is_valid_person_name(input text)
+returns boolean language sql immutable parallel safe set search_path = '' as $$
+  select pg_catalog.char_length(n) between 2 and 60
+     and n ~ '^[A-Za-zÀ-ÖØ-öø-ɏء-غـ-ٰٟ-ۓ ''’-]+$'
+     and n ~ '[A-Za-zÀ-ÖØ-öø-ɏء-غف-يٱ-ۓ]'
+  from (select public.normalize_person_name(input) as n) s;
+$$;
 
 create or replace function slugify(input text)
 returns text language sql immutable parallel safe set search_path = '' as $$
@@ -296,7 +320,10 @@ create table profiles (
 create or replace function profiles_before_write()
 returns trigger language plpgsql set search_path = public as $$
 begin
-  new.full_name := nullif(btrim(new.full_name), '');
+  new.full_name := nullif(normalize_person_name(new.full_name), '');
+  if new.full_name is not null and not is_valid_person_name(new.full_name) then
+    raise exception 'INVALID_NAME';
+  end if;
   if new.phone is not null and btrim(new.phone) <> '' then
     new.phone := normalize_phone(new.phone);
     if new.phone is null then raise exception 'INVALID_PHONE'; end if;
@@ -328,6 +355,8 @@ create unique index addresses_one_default_idx on addresses (user_id) where is_de
 create or replace function addresses_before_write()
 returns trigger language plpgsql set search_path = public as $$
 begin
+  new.full_name := normalize_person_name(new.full_name);
+  if not is_valid_person_name(new.full_name) then raise exception 'INVALID_NAME'; end if;
   new.phone := normalize_phone(new.phone);
   if new.phone is null then raise exception 'INVALID_PHONE'; end if;
   if tg_op = 'INSERT' and not exists (select 1 from addresses a where a.user_id = new.user_id) then

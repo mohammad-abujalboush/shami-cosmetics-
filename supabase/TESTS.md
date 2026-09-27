@@ -1,6 +1,8 @@
 # Database tests
 
-These SQL tests prove the security and pricing rules in `01`–`04` hold. Run them in the Supabase **SQL Editor** after running the five setup files.
+These SQL tests prove the security and pricing rules in `01`–`04` hold. Run them in the Supabase **SQL Editor** after the setup files:
+- **Fresh install:** `01` → `02` → `03` → `04` → `05`.
+- **Project set up before the grants fix:** also run `upgrade_01_names.sql`, then `02b_grants.sql`.
 
 - **Step 0** installs a small `test` schema (helpers and fixtures). **Step 99** removes it.
 - Every test block runs inside `begin; … rollback;`, so **nothing it does is kept**.
@@ -172,7 +174,7 @@ select test.expect_sqlstate($$insert into orders (customer_name) values ('x')$$,
 select test.expect_sqlstate($$update orders set total = 0$$, '42501');
 select test.expect_sqlstate($$insert into order_items (order_id) values (gen_random_uuid())$$, '42501');
 select test.expect_sqlstate($$update product_variants set price = 0.001 where id = 900011$$, '42501');
-select test.expect_rows($$select 1 from orders$$, 0);
+select test.expect_sqlstate($$select 1 from orders$$, '42501');
 
 -- A signed-in customer can't change prices or stock either
 select test.login('00000000-0000-0000-0000-00000000000c');
@@ -255,14 +257,14 @@ update settings set store_open = true;
 ```sql
 -- MANUAL — session A
 begin;
-select place_order('{"items":[{"variant_id":900111,"qty":1}],"customer_name":"أ","phone":"0790000901",
+select place_order('{"items":[{"variant_id":900111,"qty":1}],"customer_name":"عميلة أولى","phone":"0790000901",
   "governorate_id":1,"area":"عمان","address_details":"اختبار","payment_method":"cod"}');
 -- do NOT commit yet
 ```
 
 ```sql
 -- MANUAL — session B (this call now WAITS on session A's row lock)
-select place_order('{"items":[{"variant_id":900111,"qty":1}],"customer_name":"ب","phone":"0790000902",
+select place_order('{"items":[{"variant_id":900111,"qty":1}],"customer_name":"عميلة ثانية","phone":"0790000902",
   "governorate_id":1,"area":"عمان","address_details":"اختبار","payment_method":"cod"}');
 ```
 
@@ -541,7 +543,7 @@ begin
                       'guest cancels a new order with number + phone (Arabic digits ok)');
   perform test.expect_error(format('select cancel_own_order(%L, %L)', r->>'order_number', '0790000045'), 'CANNOT_CANCEL');
 end $$;
-select test.expect_error($$select cancel_own_order((select order_number from orders limit 1), '0790000042')$$, 'ORDER_NOT_FOUND');
+select test.expect_error($$select cancel_own_order('SH-99999999', '0790000042')$$, 'ORDER_NOT_FOUND');
 
 -- Logged-in customer: own orders only
 select test.login('00000000-0000-0000-0000-00000000000c');
@@ -772,13 +774,14 @@ do $$ begin
                       'guest sees only visible products (not inactive, not without active variants)');
   perform test.assert(not exists (select 1 from product_variants where id in (900015, 900016)), 'inactive variants hidden');
   perform test.assert((select count(*) from offers where name_ar = '3 صابونات بـ10') = 1, 'running offer visible');
-  perform test.assert((select count(*) from coupons) = 0, 'coupons never visible to guests');
   perform test.assert((select store_open from settings) is true, 'public settings columns readable');
   perform test.assert(not exists (select 1 from governorates where id = 12), 'inactive governorate hidden');
-  perform test.assert((select count(*) from staff) = 0, 'staff table hidden');
   perform test.assert(quiz_recommend(array['OILY'])->0->>'slug' = 'test-soap-b', 'quiz: oily → soap B first');
   perform test.assert(jsonb_array_length(quiz_recommend(array['oily'])) = 2, 'quiz: only visible soaps');
 end $$;
+
+select test.expect_sqlstate($$select 1 from coupons$$, '42501');  -- coupons never visible to guests
+select test.expect_sqlstate($$select 1 from staff$$, '42501');    -- staff table hidden
 
 -- Reviews: only after delivery, once, visible after approval
 do $$
@@ -820,7 +823,7 @@ do $$ begin
 end $$;
 select test.expect_error($$update profiles set phone = '12345' where id = auth.uid()$$, 'INVALID_PHONE');
 select test.expect_sqlstate($$insert into addresses (user_id, full_name, phone, governorate_id, area, details)
-  values ('00000000-0000-0000-0000-00000000000a', 'x', '0791234567', 1, 'xx', 'xxx')$$, '42501');
+  values ('00000000-0000-0000-0000-00000000000a', 'عميلة', '0791234567', 1, 'خلدا', 'شارع 1')$$, '42501');
 rollback;
 ```
 
@@ -837,6 +840,188 @@ select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000081')
 select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '+962790000081'));
 select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '٠٧٩٠٠٠٠٠٨١'))$$, 'RATE_LIMITED');
 select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000082'));  -- other phone fine
+rollback;
+```
+
+---
+
+## 11. Customer names
+
+Real names are accepted: Arabic or English, 2–60 characters, several words, with spaces, hyphens and apostrophes. Whitespace is collapsed. The expected values are the real outputs of `normalizeName()` / `isValidName()` in `/assets/js/utils.js`.
+
+```sql
+begin;
+do $$
+declare c record;
+begin
+  for c in select * from (values
+    ('محمد أبو جلبوش',         'محمد أبو جلبوش',         true),
+    ('Mohammad Abu-Jalboush',  'Mohammad Abu-Jalboush',  true),
+    ('O''Brien',               'O''Brien',               true),
+    ('نور',                    'نور',                    true),
+    ('Al',                     'Al',                     true),
+    ('  Ahmad   Ali  ',        'Ahmad Ali',              true),
+    ('عبدُ الله',              'عبدُ الله',              true),
+    ('José Álvarez',           'José Álvarez',           true),
+    ('D’Angelo',               'D’Angelo',               true),
+    (E'Ali\tHassan',           'Ali Hassan',             true),
+    (repeat('a', 60),          repeat('a', 60),          true),
+    ('أ',                      'أ',                      false),
+    ('A',                      'A',                      false),
+    ('12345',                  '12345',                  false),
+    ('محمد123',                'محمد123',                false),
+    ('<script>',               '<script>',               false),
+    ('--',                     '--',                     false),
+    (repeat('a', 61),          repeat('a', 61),          false),
+    ('Ali_Hassan',             'Ali_Hassan',             false),
+    ('محمد، علي',              'محمد، علي',              false),
+    ('',                       '',                       false),
+    (null,                     '',                       false)
+  ) v(input, normalized, valid) loop
+    perform test.assert(normalize_person_name(c.input) = c.normalized and is_valid_person_name(c.input) = c.valid,
+                        format('name %L → %L, valid = %s', c.input, c.normalized, c.valid));
+  end loop;
+end $$;
+
+select test.fixture();
+select test.login(null);
+do $$
+declare r jsonb;
+begin
+  r := place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000091') || '{"customer_name":"  محمد   أبو-جلبوش "}');
+  perform test.assert(get_order_by_token((r->>'public_token')::uuid)->>'customer_name' = 'محمد أبو-جلبوش',
+                      'Arabic multi-word name with hyphen accepted and stored normalized');
+  r := place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000092') || '{"customer_name":"Sarah O''Neil"}');
+  perform test.assert(r ? 'order_number', 'English name with apostrophe accepted');
+end $$;
+select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000093') || '{"customer_name":"أ"}')$$, 'INVALID_NAME');
+select test.expect_error($$select place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000094') || '{"customer_name":"12345"}')$$, 'INVALID_NAME');
+
+select test.login('00000000-0000-0000-0000-00000000000c');
+select test.expect_error($$insert into addresses (full_name, phone, governorate_id, area, details) values ('x1', '0791234567', 1, 'خلدا', 'شارع 1')$$, 'INVALID_NAME');
+select test.expect_error($$update profiles set full_name = '<b>' where id = auth.uid()$$, 'INVALID_NAME');
+rollback;
+```
+
+---
+
+## 12. Grants (privileges of the API roles)
+
+Privileges decide which operations a role may even attempt. RLS then decides which rows. This block checks the privileges directly, so it also catches drift between `02b_grants.sql` and the grant sections in `02`/`03`/`04`.
+
+```sql
+begin;
+select test.fixture();
+
+-- Guests
+select test.login(null);
+select test.expect_sqlstate($$select 1 from orders$$, '42501');
+select test.expect_sqlstate($$select 1 from order_items$$, '42501');
+select test.expect_sqlstate($$select 1 from profiles$$, '42501');
+select test.expect_sqlstate($$select 1 from addresses$$, '42501');
+select test.expect_sqlstate($$select 1 from staff$$, '42501');
+select test.expect_sqlstate($$select 1 from order_notes$$, '42501');
+select test.expect_sqlstate($$select 1 from order_status_history$$, '42501');
+select test.expect_sqlstate($$select 1 from stock_movements$$, '42501');
+select test.expect_sqlstate($$select 1 from coupons$$, '42501');
+select test.expect_sqlstate($$select cliq_alias from settings$$, '42501');
+select test.expect_rows($$select 1 from products where id in (900001, 900002, 900003)$$, 3);
+select test.expect_rows($$select 1 from product_variants where id in (900011, 900012, 900013, 900014)$$, 4);
+select test.expect_rows($$select store_open from settings$$, 1);
+select test.expect_sqlstate($$select _price_cart('[{"variant_id":900011,"qty":1}]', 1, null, null)$$, '42501');
+select test.expect_sqlstate($$select _order_public_json(gen_random_uuid())$$, '42501');
+select test.expect_sqlstate($$select update_order_status(gen_random_uuid(), 'confirmed')$$, '42501');
+
+-- Signed-in users can't change prices unless they are the owner
+select test.login('00000000-0000-0000-0000-00000000000c');  -- customer
+select test.expect_rows($$update product_variants set price = 9 where id = 900011$$, 0);
+select test.expect_sqlstate($$select _apply_status_change(gen_random_uuid(), 'cancelled', null, true, null, true)$$, '42501');
+select test.login('00000000-0000-0000-0000-00000000000b');  -- staff
+select test.expect_rows($$update product_variants set price = 9 where id = 900011$$, 0);
+select test.login('00000000-0000-0000-0000-00000000000a');  -- owner
+select test.expect_rows($$update product_variants set price = 9 where id = 900011$$, 1);
+-- Owner creates catalog rows through the API role (identity sequences + search column functions)
+do $do$
+declare v_id bigint;
+begin
+  insert into products (category_id, name_ar, name_en, description_ar, tags)
+  values ((select id from categories where key = 'soap'), 'صابون جديد', 'New Soap', 'وصف', '{Dry}')
+  returning id into v_id;
+  insert into product_variants (product_id, label, price, stock) values (v_id, 'قطعة', 3, 10);
+  perform test.assert((select slug from products where id = v_id) = 'new-soap', 'owner creates a product (slug from name_en)');
+  perform test.assert(exists (select 1 from stock_movements m join product_variants v on v.id = m.variant_id
+                              where v.product_id = v_id and m.change = 10), 'initial stock logged');
+end $do$;
+
+-- Full privilege catalogue
+reset role;
+do $$
+declare
+  r record;
+  v_anon_fns text[] := array[
+    'calculate_cart', 'place_order', 'get_order_by_token', 'track_order', 'attach_payment_proof',
+    'cancel_own_order', 'submit_review', 'quiz_recommend', 'can_upload_payment_proof',
+    'is_staff', 'is_owner', 'product_is_visible', 'western_digits', 'normalize_ar', 'product_search_text',
+    'normalize_phone', 'slugify', 'normalize_tags', 'normalize_person_name', 'is_valid_person_name'];
+  v_auth_fns text[] := v_anon_fns || array[
+    'cancel_my_order', 'update_order_status', 'verify_payment', 'adjust_stock',
+    'add_staff', 'remove_staff', 'list_staff', 'get_admin_settings', 'dashboard_stats'];
+  v_anon_read text[] := array[
+    'settings', 'governorates', 'categories', 'products', 'product_images', 'product_variants',
+    'offers', 'reviews', 'quiz_questions', 'quiz_options'];
+  v_read_only text[] := array['orders', 'order_items', 'order_status_history', 'stock_movements', 'staff'];
+begin
+  -- Functions: exactly the allow-lists; PUBLIC gets nothing; internal helpers and triggers nobody
+  for r in
+    select p.oid, p.proname, p.oid::regprocedure::text as sig
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+  loop
+    perform test.assert(not has_function_privilege('public', r.oid, 'EXECUTE'), format('PUBLIC cannot execute %s', r.sig));
+    perform test.assert(has_function_privilege('anon', r.oid, 'EXECUTE') = (r.proname = any (v_anon_fns)),
+                        format('anon EXECUTE %s = %s', r.sig, r.proname = any (v_anon_fns)));
+    perform test.assert(has_function_privilege('authenticated', r.oid, 'EXECUTE') = (r.proname = any (v_auth_fns)),
+                        format('authenticated EXECUTE %s = %s', r.sig, r.proname = any (v_auth_fns)));
+  end loop;
+
+  -- Tables
+  for r in
+    select c.oid, c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm')
+  loop
+    perform test.assert(not has_table_privilege('anon', r.oid, 'INSERT, UPDATE, DELETE, TRUNCATE')
+                        and not has_any_column_privilege('anon', r.oid, 'INSERT, UPDATE'),
+                        format('anon cannot write %s', r.relname));
+    perform test.assert(has_any_column_privilege('anon', r.oid, 'SELECT') = (r.relname = any (v_anon_read)),
+                        format('anon SELECT %s = %s', r.relname, r.relname = any (v_anon_read)));
+    perform test.assert(not has_table_privilege('authenticated', r.oid, 'TRUNCATE'),
+                        format('authenticated cannot truncate %s', r.relname));
+    if r.relname = any (v_read_only) then
+      perform test.assert(not has_table_privilege('authenticated', r.oid, 'INSERT, UPDATE, DELETE')
+                          and not has_any_column_privilege('authenticated', r.oid, 'INSERT, UPDATE'),
+                          format('authenticated cannot write %s (functions only)', r.relname));
+    end if;
+  end loop;
+
+  perform test.assert(not has_column_privilege('authenticated', 'public.product_variants', 'stock', 'UPDATE'),
+                      'no API role can update product_variants.stock directly');
+  perform test.assert(not has_column_privilege('anon', 'public.settings', 'cliq_alias', 'SELECT')
+                      and not has_column_privilege('authenticated', 'public.settings', 'cliq_account_name', 'SELECT'),
+                      'CliQ settings columns not readable by API roles');
+end $$;
+
+-- Objects created later are NOT auto-granted
+create table public.zz_grant_probe (id int);
+create function public.zz_grant_probe_fn() returns int language sql as 'select 1';
+do $$ begin
+  perform test.assert(not has_table_privilege('anon', 'public.zz_grant_probe', 'SELECT')
+                      and not has_table_privilege('authenticated', 'public.zz_grant_probe', 'SELECT'),
+                      'new tables get no API privileges by default');
+  perform test.assert(not has_function_privilege('public', 'public.zz_grant_probe_fn()', 'EXECUTE')
+                      and not has_function_privilege('anon', 'public.zz_grant_probe_fn()', 'EXECUTE'),
+                      'new functions get no EXECUTE by default');
+end $$;
 rollback;
 ```
 

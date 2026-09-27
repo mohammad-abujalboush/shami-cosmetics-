@@ -1,8 +1,8 @@
 // Public runtime configuration. Everything in this file ships to the browser.
 // Use ONLY the anon / publishable key here — never the service_role / secret key.
 
-export const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
-export const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
+export const SUPABASE_URL = 'https://dsqnjbeybzmqisojagdl.supabase.co';
+export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRzcW5qYmV5YnptcWlzb2phZ2RsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MjgxODIsImV4cCI6MjEwNjAwNDE4Mn0.5MRQ3w43DazQFW1vn66ZMRzIYGw7fZj9FbVM2v7BfV4';
 
 export const STORE_TIMEZONE = 'Asia/Amman';
 
