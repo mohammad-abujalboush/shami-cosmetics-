@@ -1052,7 +1052,7 @@ rollback;
 
 ## 13. Refunds (refund_due → refunded)
 
-A paid CliQ order that is cancelled or returned becomes `refund_due`. The owner settles it with `mark_refunded`. Every payment change is logged in the status history.
+Any paid order that is cancelled or returned becomes `refund_due` (paid CliQ, or COD that was delivered and then returned). The owner settles it with `mark_refunded`. Every payment change is logged in the status history.
 
 ```sql
 begin;
@@ -1096,13 +1096,14 @@ begin
   perform update_order_status(b, 'returned', null, false);
   perform test.assert((select payment_status from orders where id = b) = 'refund_due', 'paid CliQ + returned → refund_due');
 
-  -- C: COD delivered then returned → stays paid (refund rule is for CliQ only)
+  -- C: COD delivered (paid) then returned → refund_due
   perform update_order_status(c, 'confirmed');
   perform update_order_status(c, 'with_courier');
   perform update_order_status(c, 'delivered');
   perform update_order_status(c, 'returned');
-  perform test.assert((select payment_status from orders where id = c) = 'paid', 'COD return keeps payment_status = paid');
-  perform test.expect_error(format('select mark_refunded(%L)', c), 'REFUND_NOT_DUE');
+  perform test.assert((select payment_status from orders where id = c) = 'refund_due', 'paid COD + returned → refund_due');
+  perform test.assert(exists (select 1 from order_status_history where order_id = c and to_status = 'returned'
+                              and payment_from = 'paid' and payment_to = 'refund_due'), 'COD return logs paid → refund_due');
 
   -- D: cancelled before paying; the transfer arrives later → refund_due
   perform update_order_status(d, 'cancelled');
@@ -1110,8 +1111,8 @@ begin
   perform verify_payment(d, true);
   perform test.assert((select payment_status from orders where id = d) = 'refund_due', 'money confirmed for a cancelled order → refund_due');
 
-  perform test.assert((dashboard_stats(current_date, current_date)->>'refund_due_count')::integer = v_due_before + 3,
-                      'dashboard counts refund_due orders (+3)');
+  perform test.assert((dashboard_stats(current_date, current_date)->>'refund_due_count')::integer = v_due_before + 4,
+                      'dashboard counts refund_due orders (+4)');
 
   -- Settle A
   perform test.assert(mark_refunded(a, 'تم التحويل عبر CliQ')->>'payment_status' = 'refunded', 'mark_refunded → refunded');
@@ -1119,7 +1120,7 @@ begin
                               and payment_to = 'refunded' and note = 'تم التحويل عبر CliQ'
                               and changed_by = '00000000-0000-0000-0000-00000000000a'), 'refund logged with note and owner');
   perform test.expect_error(format('select mark_refunded(%L)', a), 'REFUND_NOT_DUE');
-  perform test.assert((dashboard_stats(current_date, current_date)->>'refund_due_count')::integer = v_due_before + 2,
+  perform test.assert((dashboard_stats(current_date, current_date)->>'refund_due_count')::integer = v_due_before + 3,
                       'dashboard refund_due count drops after refund');
 end $$;
 

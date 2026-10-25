@@ -615,7 +615,12 @@ nav.links + .nav-actions{ margin-inline-start:0; }
   animation: wa-pulse 2.6s ease-in-out infinite;
 }
 .wa-float svg{ width:28px; height:28px; }
-@media (max-width:600px){ .wa-float{ inset-block-end:18px; inset-inline-end:18px; width:52px; height:52px; } }
+@media (max-width:600px){
+  .wa-float{ inset-block-end:18px; inset-inline-end:18px; width:52px; height:52px; }
+  /* Never cover the primary action: hidden on checkout/order, lifted above the bottom buttons elsewhere */
+  body[data-page="checkout"] .wa-float, body[data-page="order"] .wa-float{ display:none; }
+  body[data-page="quiz"] .wa-float, body[data-page="product"] .wa-float, body[data-page="track"] .wa-float{ inset-block-end:92px; }
+}
 @keyframes wa-pulse{ 0%,100%{ transform: scale(1); } 50%{ transform: scale(1.08); } }
 
 /* ---------- 14. Scroll reveal ---------- */

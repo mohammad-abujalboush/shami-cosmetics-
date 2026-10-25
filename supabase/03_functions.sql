@@ -320,11 +320,12 @@ begin
     update coupons c set used_count = greatest(c.used_count - 1, 0) where c.id = v_order.coupon_id;
   end if;
 
-  -- Payment follow-ups: COD is paid on delivery; a paid CliQ order that is cancelled or
-  -- returned now owes the customer a refund (the owner settles it with mark_refunded).
+  -- Payment follow-ups: COD is paid on delivery; any paid order (CliQ, or COD returned after
+  -- delivery) that is cancelled or returned now owes the customer a refund (the owner settles
+  -- it with mark_refunded).
   v_new_pay := case
     when p_new = 'delivered' and v_order.payment_method = 'cod' then 'paid'
-    when p_new in ('cancelled', 'returned') and v_order.payment_method = 'cliq' and v_old_pay = 'paid' then 'refund_due'
+    when p_new in ('cancelled', 'returned') and v_old_pay = 'paid' then 'refund_due'
     else v_old_pay
   end;
 
@@ -830,7 +831,7 @@ begin
   return jsonb_build_object('payment_status', v_order.payment_status, 'paid_at', v_order.paid_at);
 end $$;
 
--- Owner only: the refund owed on a cancelled/returned paid CliQ order has been sent back.
+-- Owner only: the refund owed on a cancelled/returned paid order has been sent back.
 create or replace function mark_refunded(order_id uuid, note text default null)
 returns jsonb language plpgsql volatile security definer set search_path = public as $$
 #variable_conflict use_column
