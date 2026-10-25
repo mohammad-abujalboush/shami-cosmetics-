@@ -1,0 +1,46 @@
+/* =====================================================================
+   Customer account: auth cards, tabs, order cards, addresses.
+   ===================================================================== */
+
+.auth-card .form-links{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px 16px; font-size:14px; }
+.auth-card .form-links a, .auth-card .alt a, .link-inline{ color: var(--gold-deep); font-weight:700; text-decoration:underline; text-underline-offset:3px; }
+.auth-card .alt{ margin-top:22px; text-align:center; font-size:14.5px; color: var(--ink-dim); }
+.pw-wrap{ position:relative; }
+.pw-wrap .input{ padding-inline-end:76px; }
+.pw-toggle{
+  position:absolute; inset-block:0; inset-inline-end:6px; margin-block:auto; height:36px; padding:0 12px;
+  border:0; border-radius:10px; background:transparent; font-size:13px; font-weight:700; color: var(--gold-deep);
+}
+.form-error{ font-size:14px; font-weight:600; color: var(--danger); }
+.form-error:empty{ display:none; }
+.auth-done{ text-align:center; display:grid; gap:12px; }
+.auth-done .ok-icon{ margin-inline:auto; }
+
+/* Account shell */
+.acc-head{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 20px; margin-bottom:22px; }
+.acc-head h1{ margin:0; }
+.acc-links{ display:flex; flex-wrap:wrap; gap:10px; }
+.tabs{ display:flex; gap:6px; border-bottom:1px solid var(--line); margin-bottom:24px; overflow-x:auto; }
+.tab{
+  padding:12px 18px; border:0; background:transparent; font-weight:700; color: var(--ink-dim); white-space:nowrap;
+  border-bottom:3px solid transparent; margin-bottom:-1px;
+}
+.tab[aria-selected="true"]{ color: var(--ink); border-bottom-color: var(--gold); }
+.tab:focus-visible{ outline:2px solid var(--gold); outline-offset:-2px; border-radius:8px; }
+
+.order-cards{ display:grid; gap:16px; }
+.order-card{ display:grid; gap:12px; }
+.order-card-head{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; }
+.order-card-head .order-number{ font-size:17px; }
+.order-card-sub{ font-size:13px; color: var(--ink-dim); }
+.order-card-items{ font-size:14px; margin:0; color: var(--ink); }
+.order-card-foot{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px; }
+
+.addr-grid{ display:grid; gap:16px; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); }
+.addr-card{ display:grid; gap:10px; align-content:start; }
+.addr-card h3{ font-size:16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.addr-card p{ margin:0; font-size:14.5px; }
+.addr-actions{ display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+
+.stack{ display:grid; gap:22px; max-width:640px; }
+@media (max-width:600px){ .acc-links .btn{ flex:1 1 auto; } }

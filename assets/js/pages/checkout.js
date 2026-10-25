@@ -55,10 +55,11 @@ async function init() {
 
 // Signed-in customers get name / phone / default address prefilled. Never blocks checkout.
 async function loadPrefill() {
-  const out = { name: '', phone: '', address: null, addresses: [] };
+  const out = { name: '', phone: '', address: null, addresses: [], signedIn: false };
   try {
     const session = await getSession();
     if (!session) return out;
+    out.signedIn = true;
     const sb = requireClient();
     const [profile, addresses] = await Promise.all([
       run(sb.from('profiles').select('full_name, phone').eq('id', session.user.id).maybeSingle()),
@@ -124,6 +125,7 @@ function buildPage(prefill) {
         <section class="co-card" aria-labelledby="co-details-title">
           <h2 id="co-details-title">${t('checkout.detailsTitle')}</h2>
           <div class="form">
+            ${prefill.signedIn ? '' : html`<p class="hint" style="margin:0">${t('checkout.loginHint')} <a class="link-inline" href="/account/login.html?next=${encodeURIComponent('/checkout.html')}">${t('checkout.loginLink')}</a></p>`}
             ${state.addresses.length > 1 ? field('co-saved', t('checkout.savedAddress'), html`
               <select class="select" id="co-saved" data-saved>
                 ${state.addresses.map((a) => html`<option value="${a.id}" ${raw(a.id === addr?.id ? 'selected' : '')}>${a.label || a.area}</option>`)}

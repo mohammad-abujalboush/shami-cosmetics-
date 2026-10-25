@@ -197,19 +197,53 @@ function setupCart() {
   });
 }
 
-function renderAccountLink(session) {
+// Logged out: link to login and come back to this page afterwards. Logged in: show the first name.
+const nameCache = new Map();
+
+async function accountFirstName(session, supa) {
+  const id = session.user.id;
+  if (!nameCache.has(id)) {
+    let full = String(session.user.user_metadata?.full_name ?? '');
+    try {
+      const row = await supa.run(supa.sb.from('profiles').select('full_name').eq('id', id).maybeSingle());
+      if (row?.full_name) full = row.full_name;
+    } catch { /* metadata / generic label is enough */ }
+    nameCache.set(id, full.trim().split(/\s+/)[0] || '');
+  }
+  return nameCache.get(id);
+}
+
+function loginHref() {
+  if (document.body.dataset.page === 'auth') return '/account/login.html';
+  return `/account/login.html?next=${encodeURIComponent(location.pathname + location.search)}`;
+}
+
+async function renderAccountLink(session) {
   const link = document.querySelector('[data-account-link]');
   if (!link) return;
-  link.href = session ? '/account/' : '/account/login.html';
-  link.querySelector('.nav-account-label').textContent = t(session ? 'header.account' : 'header.login');
-  if (session && document.body.dataset.page === 'account') link.setAttribute('aria-current', 'page');
+  const label = link.querySelector('.nav-account-label');
+  link.href = session ? '/account/' : loginHref();
+  if (!session) {
+    label.textContent = t('header.login');
+    link.removeAttribute('aria-label');
+    return;
+  }
+  label.textContent = t('header.account');
+  if (document.body.dataset.page === 'account') link.setAttribute('aria-current', 'page');
+  const supa = await supabaseModule;
+  const first = supa?.sb ? await accountFirstName(session, supa) : '';
+  if (first) {
+    label.textContent = first;
+    link.setAttribute('aria-label', t('header.accountNamed', { name: first }));
+  }
 }
 
 async function setupAccountLink() {
   const supa = await supabaseModule;
   if (!supa?.sb) return;
   renderAccountLink(await supa.getSession());
-  supa.onAuthChange(renderAccountLink);
+  // Don't query inside the auth callback (supabase-js can deadlock): defer.
+  supa.onAuthChange((session) => setTimeout(() => renderAccountLink(session), 0));
 }
 
 function renderCategories(categories) {

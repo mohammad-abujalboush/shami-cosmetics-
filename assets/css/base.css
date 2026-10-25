@@ -567,6 +567,7 @@ nav.links + .nav-actions{ margin-inline-start:0; }
   padding:9px 18px; border-radius: var(--radius-pill); background: var(--ink); color: var(--cream);
   transition: all .3s ease;
 }
+.nav-account-label{ max-width:12ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 @media (hover:hover){ .nav-account:hover{ background: var(--gold-deep); transform: translateY(-2px); box-shadow:0 8px 20px rgba(184,146,63,0.35); } }
 .cart-count{
   position:absolute; inset-block-start:2px; inset-inline-end:0;
