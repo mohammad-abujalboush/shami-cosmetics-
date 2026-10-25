@@ -983,7 +983,7 @@ declare
   r record;
   v_anon_fns text[] := array[
     'calculate_cart', 'place_order', 'get_order_by_token', 'track_order', 'attach_payment_proof',
-    'cancel_own_order', 'submit_review', 'quiz_recommend', 'can_upload_payment_proof',
+    'cancel_own_order', 'submit_review', 'quiz_recommend', 'product_reviews', 'can_upload_payment_proof',
     'is_staff', 'is_owner', 'product_is_visible', 'western_digits', 'normalize_ar', 'product_search_text',
     'normalize_phone', 'slugify', 'normalize_tags', 'normalize_person_name', 'is_valid_person_name'];
   v_auth_fns text[] := v_anon_fns || array[
@@ -991,7 +991,7 @@ declare
     'add_staff', 'remove_staff', 'list_staff', 'get_admin_settings', 'dashboard_stats'];
   v_anon_read text[] := array[
     'settings', 'governorates', 'categories', 'products', 'product_images', 'product_variants',
-    'offers', 'reviews', 'quiz_questions', 'quiz_options'];
+    'offers', 'reviews', 'quiz_questions', 'quiz_options', 'catalog_products'];
   v_read_only text[] := array['orders', 'order_items', 'order_status_history', 'stock_movements', 'staff'];
 begin
   -- Functions: exactly the allow-lists; PUBLIC gets nothing; internal helpers and triggers nobody
@@ -1214,6 +1214,82 @@ do $$ begin
 end $$;
 -- The receipt can still be attached (it's already uploaded)
 select test.expect_rows($$select attach_payment_proof(current_setting('test.p')::uuid, current_setting('test.p') || '/3.webp')$$, 1);
+rollback;
+```
+
+---
+
+## 16. Storefront catalog view and product reviews
+
+`catalog_products` is what the shop pages query. It only contains visible products, and it computes the "from" price, stock state and default variant in the database. `product_reviews` returns only approved reviews from orders that contain the product.
+
+```sql
+begin;
+select test.fixture();
+select test.login(null);
+do $$
+declare r record;
+begin
+  perform test.assert(not exists (select 1 from catalog_products where id in (900004, 900005)),
+                      'inactive product and product without active variants are not in the catalog');
+  select * into r from catalog_products where id = 900002;
+  perform test.assert(r.from_price = 3 and r.variant_count = 2 and r.in_stock and r.category_key = 'soap',
+                      'soap B: from 3 JD, 2 variants, in stock');
+  perform test.assert(r.default_variant_id = 900013 and r.default_variant_stock = 1, 'default variant = cheapest in stock');
+  select * into r from catalog_products where id = 900003;
+  perform test.assert(r.from_price = 20 and r.variant_count = 1, 'perfume: inactive 100ml variant ignored');
+  perform test.assert((select count(*) from catalog_products where id between 900001 and 900003
+                       and search like '%' || normalize_ar('إختبار') || '%') = 3, 'Arabic-normalized search on the view');
+end $$;
+
+reset role;
+update product_variants set stock = 0 where id = 900013;
+select test.login(null);
+do $$
+declare r record;
+begin
+  select * into r from catalog_products where id = 900002;
+  perform test.assert(r.in_stock and r.default_variant_id = 900012 and r.from_price = 3,
+                      'cheapest variant sold out → default moves to an in-stock variant; from price unchanged');
+end $$;
+reset role;
+update product_variants set stock = 0 where id = 900012;
+select test.login(null);
+do $$ begin
+  perform test.assert(not (select in_stock from catalog_products where id = 900002), 'all variants sold out → in_stock = false');
+end $$;
+
+-- Reviews: pending ones don't count; only products in the reviewed order
+do $$
+declare r jsonb;
+begin
+  r := place_order(test.payload('[{"variant_id":900011,"qty":1}]', '0790000131'));
+  perform set_config('test.pr', r->>'public_token', true);
+end $$;
+select test.login('00000000-0000-0000-0000-00000000000b');
+do $$
+declare v_id uuid := (select id from orders where public_token = current_setting('test.pr')::uuid);
+begin
+  perform update_order_status(v_id, 'confirmed');
+  perform update_order_status(v_id, 'with_courier');
+  perform update_order_status(v_id, 'delivered');
+  perform set_config('test.pr_id', v_id::text, true);
+end $$;
+select test.login(null);
+select submit_review(current_setting('test.pr')::uuid, 4, 'جيد جدًا');
+do $$ begin
+  perform test.assert((product_reviews(900001)->>'count')::int = 0, 'pending review not counted');
+end $$;
+select test.login('00000000-0000-0000-0000-00000000000b');
+update reviews set status = 'approved' where order_id = current_setting('test.pr_id')::uuid;
+select test.login(null);
+do $$
+declare r jsonb := product_reviews(900001);
+begin
+  perform test.assert((r->>'count')::int = 1 and (r->>'average')::numeric = 4, 'approved review counted, average 4');
+  perform test.assert(r->'reviews'->0->>'body' = 'جيد جدًا' and not (r->'reviews'->0 ? 'id'), 'review returned without internal ids');
+  perform test.assert((product_reviews(900002)->>'count')::int = 0, 'other products get no reviews from this order');
+end $$;
 rollback;
 ```
 

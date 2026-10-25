@@ -10,7 +10,10 @@ export const STORAGE_KEYS = {
   // Cart lives in localStorage as [{ variant_id, qty }] — IDs and quantities only, never prices.
   cart: 'shami_cart_v1',
   // sessionStorage cache for header/footer data (public settings + categories).
-  siteData: 'shami_site_data_v1',
+  siteData: 'shami_site_data_v2',
 };
 
 export const SITE_DATA_TTL_MS = 5 * 60 * 1000;
+
+export const PRODUCT_IMAGES_BUCKET = 'product-images';
+export const SHOP_PAGE_SIZE = 12;

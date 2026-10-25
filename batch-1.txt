@@ -1,0 +1,2262 @@
+
+
+===== FILE: CLAUDE.md =====
+
+# Shami Cosmetics — Project Rules
+
+Jordanian cosmetics e-commerce store (Turkish medical soap, TWINS perfumes, gift boxes).
+Stack: plain HTML/CSS/JS (no framework, no build step) + Supabase (Postgres, Auth, Storage, RPC).
+Hosted as static files (Netlify / Cloudflare Pages).
+
+## Language & UI rules — ARABIC FIRST
+Arabic is the primary and default language of the entire project: storefront, customer account, admin panel, emails, WhatsApp messages, error messages, print slips. English appears only in brand names (Shami Cosmetics, TWINS) and product names where the brand uses them.
+Code identifiers, table names, and comments stay in English.
+
+Layout & direction
+- Every page: <html lang="ar" dir="rtl">. Design and test in RTL first; never build LTR and flip.
+- Use CSS logical properties (margin-inline-start, padding-inline-end, inset-inline-start, text-align: start) instead of left/right.
+- Directional icons (arrows, chevrons, "next/back") are mirrored for RTL. The cart drawer slides in from the left; the admin sidebar is on the right.
+- Phone numbers, emails, order numbers, coupon codes, SKUs, and CliQ aliases are rendered and typed inside dir="ltr" spans/inputs so they don't scramble.
+
+Typography
+- Cairo is the main font for all UI text, headings, and numbers. Playfair Display is only for the "Shami Cosmetics" wordmark. Load only the weights actually used.
+- Line-height and font sizes tuned for Arabic (base 16px, line-height ≈1.8 for body).
+
+Numbers, currency, dates
+- Display Western digits (0-9), which is standard in Jordan. Use Intl with 'ar-JO' and numberingSystem 'latn'.
+- Prices: number then "د.أ" → "18 د.أ", "2.5 د.أ". Prices stored numeric(10,3), trailing zeros trimmed.
+- Dates in Arabic with Asia/Amman timezone: "26 أيلول 2026، 3:40 م" (Levantine month names: كانون الثاني، شباط، آذار، نيسان، أيار، حزيران، تموز، آب، أيلول، تشرين الأول، تشرين الثاني، كانون الأول).
+- Every input that accepts numbers (phone, quantity, CliQ reference, coupon) must convert Arabic-Indic digits (٠١٢٣٤٥٦٧٨٩) and Persian digits to Western before validating/sending. Customers on Arabic keyboards will type them.
+
+Text & copy
+- All UI strings live in /assets/js/strings.ar.js (one object, grouped by page). No hardcoded UI text scattered in HTML/JS. This also makes an English version possible later without a rewrite.
+- Copy is natural Jordanian-friendly Modern Standard Arabic and GENDER-NEUTRAL everywhere (storefront, account, admin, errors, emails, WhatsApp, SQL seed/notices). Rules, in priority order:
+  a) Prefer neutral noun / verbal-noun forms: "إضافة إلى السلة", "إتمام الطلب", "تتبع الطلب", "بدء الاختبار", "يرجى إدخال رقم الهاتف".
+  b) Only where a verb addressed to the customer is unavoidable, use the standard generic masculine form (أدخل، اختر، تسوق) — e.g. "تسوق الآن" only if no noun form reads naturally.
+  c) No feminine-only phrasing anywhere (تسوقي، أدخلي، عميلة، عزيزتي). Use "العميل" / "عملاؤنا" or rephrase.
+  /reference/demo.html is the visual reference only; its feminine copy is not to be reused.
+- Never show raw browser or Supabase English errors. Use custom validation (novalidate on forms) with Arabic messages. RPC functions return error CODES (e.g. OUT_OF_STOCK, COUPON_EXPIRED, RATE_LIMITED), and the frontend maps each code to an Arabic message in strings.ar.js.
+- Empty states, loading text, toasts, confirmations, print slips, email templates, and WhatsApp templates are all in Arabic.
+
+Arabic search
+- Product search normalizes Arabic on both sides: remove tashkeel and tatweel, أ/إ/آ → ا, ة → ه, ى → ي, ؤ → و, ئ → ي. Implement as a Postgres function normalize_ar(text) plus a generated search column on products (name_ar + name_en + tags), and apply the same normalization in JS.
+- Arabic sorting uses proper collation (localeCompare with 'ar').
+
+Content model
+- name_ar and description_ar are REQUIRED. name_en is optional.
+- Product/category URLs use a Latin slug the admin can edit. Auto-generate from name_en if present, otherwise from the product ID (e.g. p-1042). Never put raw Arabic in URLs.
+
+SEO
+- Arabic <title>, meta description, and Open Graph tags on every page, og:locale = ar_JO.
+
+General
+- Design system = /reference/demo.html (colors, spacing, components); reuse its CSS variables exactly. It is a reference only, not a page of the site.
+- Shared CSS in /assets/css, shared JS in /assets/js. Header/footer injected by /assets/js/layout.js.
+- Every data view needs loading, empty, and error states in Arabic. No placeholder data.
+- Mobile-first, accessible (Arabic labels on every input, visible focus, prefers-reduced-motion respected).
+
+## Security (non-negotiable)
+- Browser is untrusted. Prices, totals, discounts, delivery fees, and stock are ONLY calculated in Postgres functions. The client sends variant IDs + quantities, never prices.
+- Every table has RLS enabled. Permissions are enforced in RLS/RPC, not by hiding buttons.
+- Only the anon key in frontend (/assets/js/config.js). Never the service_role key.
+- Admin pages check staff role on load and redirect if not authorized, but real protection is RLS.
+
+## Catalog
+- Categories: soap, twins_perfumes, twins_unity, gift_boxes (admin-managed, sortable).
+- Product has: name_ar, name_en, description_ar, category, gender (men/women/unisex/null), tags[] (used by quiz, e.g. sensitive, oily, dry, acne, whitening), is_bestseller, active, sort, multiple images.
+- Product variants: label (e.g. "50ml", "قطعة واحدة"), sku, price, compare_at_price (optional, must be > price to show strikethrough), stock, low_stock_threshold (default 5), active.
+- Every product has at least one variant. "From X JD" = cheapest active variant.
+- stock = 0 → show "نفذت الكمية", disable add to cart. Cart quantity cannot exceed stock.
+
+## Delivery
+- 12 Jordanian governorates, each with an editable delivery fee and active flag.
+- Settings: free_delivery_threshold (nullable). Threshold applies to subtotal after discounts.
+
+## Offers & coupons
+- Bundle offer: category + quantity N + fixed bundle_price, with starts_at/ends_at, active, show_countdown.
+  Applied automatically. Eligible units sorted by price DESC, grouped into sets of N; each full set costs bundle_price. Remaining units full price.
+- Only one bundle offer per category active at a time (enforced).
+- Countdown shows the REAL ends_at of the active offer. If no active offer, hide the section. Never fake timers.
+- Coupons: code (case-insensitive, stored uppercase), percent or fixed, min_order, max_uses, used_count, max_per_phone, starts_at, ends_at, combinable_with_offers, active.
+  Applied after bundle discounts, never makes subtotal negative. Percent coupons can have max_discount.
+- Order of calculation: subtotal → bundle discount → coupon discount → delivery fee (0 if threshold met) → total.
+
+## Checkout & orders
+- Guest checkout allowed. Logged-in customers get name/phone/saved addresses prefilled and the order linked to their account.
+- Fields: full name, phone (Jordan mobile: 07[789]XXXXXXX, stored as 9627XXXXXXXX), governorate, area, address details, notes (optional), payment method.
+- Payment methods: cod, cliq.
+  - cliq: after placing order, customer sees CliQ alias + account name (from settings) + exact amount + order number to write in the transfer note, then uploads a receipt screenshot and/or enters the reference. payment_status = awaiting_transfer → awaiting_verification after upload.
+  - Unverified CliQ orders older than settings.cliq_window_hours (default 24) are flagged in admin (not auto-cancelled).
+- Order number: human readable sequential, format SH-10001.
+- Each order also has a public_token (uuid) used for the success page and receipt upload.
+- order_items store snapshots: product name, variant label, unit price, quantity, line total (prices never change retroactively).
+- Rate limit: max 3 orders per phone per hour.
+- After success: WhatsApp button opening wa.me/<store number> with prefilled Arabic order summary.
+
+## Order lifecycle
+Statuses: new → confirmed → with_courier → delivered; cancelled; returned.
+Allowed transitions:
+- new → confirmed | cancelled
+- confirmed → with_courier | cancelled
+- with_courier → delivered | returned | cancelled
+- delivered → returned
+- CliQ orders cannot move to with_courier unless payment_status = paid.
+Payment status: unpaid, awaiting_transfer, awaiting_verification, paid, refunded. COD becomes paid when delivered.
+Stock: decremented when order is placed. Cancelled → restocked automatically. Returned → restocked only if admin ticks "إرجاع للمخزون" (returned cosmetics may not be resellable).
+Customers can cancel their own order only while status = new.
+Every status change writes order_status_history (who, when, from, to, note).
+Every stock change writes stock_movements (variant, change, reason: order/cancel/return/manual, order_id, by).
+
+## Customer accounts (optional)
+- Supabase email + password. Profile: full name, phone. Multiple saved addresses, one default.
+- Account page: order history with status, reorder button, addresses management.
+- Order tracking also works without account: order number + phone.
+
+## Reviews
+- Customers can leave a review from the tracking page only after their order is delivered (one per order).
+- Reviews need approval before showing publicly. Admin can also feature reviews on the homepage.
+- Homepage stats (customers count, rating, etc.) come from settings, editable or hideable. No invented numbers.
+
+## Skin quiz
+- 3 questions, admin-editable. Each option maps to tags. Result = active soap products ranked by matching tags (top 3), with add-to-cart.
+
+## Staff roles
+- staff table: user_id, role (owner | staff), active.
+- First owner inserted manually via SQL. Owner promotes existing accounts by email via RPC add_staff(email, role).
+- Owner: everything.
+- Staff: view and manage orders (status changes, internal notes, print slips), manual stock adjustments (logged), moderate reviews.
+  Staff CANNOT: edit prices/products, offers, coupons, delivery fees, settings, staff; verify CliQ payments; see revenue reports.
+
+## Settings (single row)
+store_whatsapp, cliq_alias, cliq_account_name, cliq_window_hours, free_delivery_threshold, top_bar_messages[], homepage stats (json, each with show flag), return_policy_ar, social links, store_open (if false, checkout disabled with a message).
+
+
+===== FILE: supabase\01_schema.sql =====
+
+-- =====================================================================
+-- Shami Cosmetics — 01 schema
+-- Tables, enums, constraints, indexes, triggers, seed data.
+-- Run first, once, on a fresh Supabase project.
+-- =====================================================================
+
+create extension if not exists pg_trgm with schema extensions;
+create extension if not exists btree_gist with schema extensions;
+
+-- Nothing we create is granted to the API roles automatically; every grant is explicit
+-- (see the grants sections at the end of 02, 03, 04 and the standalone 02b_grants.sql).
+alter default privileges in schema public revoke all on tables    from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke all on functions from anon, authenticated;
+alter default privileges revoke execute on functions from public;
+
+-- ---------------------------------------------------------------------
+-- Enums
+-- ---------------------------------------------------------------------
+create type gender_t       as enum ('men', 'women', 'unisex');
+create type order_status   as enum ('new', 'confirmed', 'with_courier', 'delivered', 'cancelled', 'returned');
+create type payment_status as enum ('unpaid', 'awaiting_transfer', 'awaiting_verification', 'paid', 'refund_due', 'refunded');
+create type payment_method as enum ('cod', 'cliq');
+create type staff_role     as enum ('owner', 'staff');
+create type coupon_type    as enum ('percent', 'fixed');
+create type stock_reason   as enum ('order', 'cancel', 'return', 'manual');
+create type review_status  as enum ('pending', 'approved', 'rejected');
+
+-- ---------------------------------------------------------------------
+-- Text helpers (immutable; mirrored in /assets/js/utils.js)
+-- ---------------------------------------------------------------------
+
+-- Arabic-Indic and Persian digits → 0-9, Arabic decimal separator → '.', Arabic thousands separator removed.
+-- Mirrors toWesternDigits().
+create or replace function western_digits(input text)
+returns text language sql immutable parallel safe set search_path = '' as $$
+  select pg_catalog.translate(coalesce(input, ''), '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫٬', '01234567890123456789.');
+$$;
+
+-- Mirrors normalizeArabic() exactly: digits → lower → strip tashkeel → strip tatweel →
+-- أ/إ/آ→ا, ة→ه, ى→ي, ؤ→و, ئ→ي → collapse whitespace (JS \s set) → trim.
+create or replace function normalize_ar(input text)
+returns text language sql immutable parallel safe set search_path = '' as $$
+  select pg_catalog.btrim(
+    pg_catalog.regexp_replace(
+      pg_catalog.translate(
+        pg_catalog.regexp_replace(
+          pg_catalog.lower(public.western_digits(input)),
+          '[ؐ-ًؚ-ٰٟۖ-ۭ]', '', 'g'),
+        'أإآةىؤئـ', 'اااهيوي'),
+      '[\s   -     　﻿]+', ' ', 'g'),
+    ' ');
+$$;
+
+-- Wrapper so the generated search column only calls immutable functions
+-- (array_to_string / concat_ws are only STABLE on their own).
+create or replace function product_search_text(name_ar text, name_en text, tags text[])
+returns text language sql immutable parallel safe set search_path = '' as $$
+  select public.normalize_ar(pg_catalog.concat_ws(' ', name_ar, name_en, pg_catalog.array_to_string(tags, ' ')));
+$$;
+
+-- Jordan mobile → '9627XXXXXXXX' or NULL. Mirrors normalizePhone().
+create or replace function normalize_phone(input text)
+returns text language plpgsql immutable parallel safe set search_path = '' as $$
+declare
+  d text := pg_catalog.regexp_replace(public.western_digits(input), '[-\s().]', '', 'g');
+begin
+  if d like '+%' then d := substr(d, 2); end if;
+  if d like '00%' then d := substr(d, 3); end if;
+  if d like '962%' then d := substr(d, 4); end if;
+  if d like '0%' then d := substr(d, 2); end if;
+  if d ~ '^7[789][0-9]{7}$' then return '962' || d; end if;
+  return null;
+end $$;
+
+-- Trim + collapse whitespace (JS \s set). Mirrors normalizeName().
+create or replace function normalize_person_name(input text)
+returns text language sql immutable parallel safe set search_path = '' as $$
+  select pg_catalog.btrim(pg_catalog.regexp_replace(coalesce(input, ''),
+    '[\s   -     　﻿]+', ' ', 'g'));
+$$;
+
+-- Customer names: Arabic or Latin letters (incl. accents, tashkeel), spaces, hyphens, apostrophes;
+-- 2–60 characters after normalizing; at least one letter. Mirrors isValidName().
+create or replace function is_valid_person_name(input text)
+returns boolean language sql immutable parallel safe set search_path = '' as $$
+  select pg_catalog.char_length(n) between 2 and 60
+     and n ~ '^[A-Za-zÀ-ÖØ-öø-ɏء-غـ-ٰٟ-ۓ ''’-]+$'
+     and n ~ '[A-Za-zÀ-ÖØ-öø-ɏء-غف-يٱ-ۓ]'
+  from (select public.normalize_person_name(input) as n) s;
+$$;
+
+create or replace function slugify(input text)
+returns text language sql immutable parallel safe set search_path = '' as $$
+  select pg_catalog.btrim(pg_catalog.regexp_replace(pg_catalog.lower(coalesce(input, '')), '[^a-z0-9]+', '-', 'g'), '-');
+$$;
+
+-- Lowercase, trimmed, de-duplicated, sorted tags.
+create or replace function normalize_tags(input text[])
+returns text[] language sql immutable parallel safe set search_path = '' as $$
+  select coalesce(array_agg(distinct t order by t), '{}'::text[])
+  from (select pg_catalog.lower(pg_catalog.btrim(x)) as t from unnest(input) as x) s
+  where t <> '';
+$$;
+
+create or replace function set_updated_at()
+returns trigger language plpgsql set search_path = '' as $$
+begin
+  new.updated_at := now();
+  return new;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Settings (single row)
+-- ---------------------------------------------------------------------
+create table settings (
+  id                      boolean primary key default true check (id),
+  store_whatsapp          text check (store_whatsapp is null or store_whatsapp ~ '^[0-9]{8,15}$'),
+  cliq_alias              text,
+  cliq_account_name       text,
+  cliq_window_hours       integer not null default 24 check (cliq_window_hours between 1 and 720),
+  free_delivery_threshold numeric(10,3) check (free_delivery_threshold is null or free_delivery_threshold >= 0),
+  top_bar_messages        text[] not null default '{}',
+  -- [{ "label_ar": "…", "value": "…", "show": true }, …]
+  homepage_stats          jsonb not null default '[]' check (jsonb_typeof(homepage_stats) = 'array'),
+  return_policy_ar        text,
+  -- { "instagram": "https://…", "facebook": "https://…", "tiktok": "https://…", "snapchat": "https://…" }
+  social_links            jsonb not null default '{}' check (jsonb_typeof(social_links) = 'object'),
+  store_open              boolean not null default true,
+  updated_at              timestamptz not null default now()
+);
+
+create or replace function settings_before_write()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.store_whatsapp is not null then
+    new.store_whatsapp := coalesce(
+      normalize_phone(new.store_whatsapp),
+      nullif(regexp_replace(western_digits(new.store_whatsapp), '[^0-9]', '', 'g'), ''));
+  end if;
+  new.cliq_alias := nullif(btrim(new.cliq_alias), '');
+  new.cliq_account_name := nullif(btrim(new.cliq_account_name), '');
+  return new;
+end $$;
+create trigger settings_before_write before insert or update on settings
+  for each row execute function settings_before_write();
+
+-- ---------------------------------------------------------------------
+-- Delivery
+-- ---------------------------------------------------------------------
+create table governorates (
+  id           smallint primary key,
+  name_ar      text not null unique,
+  delivery_fee numeric(10,3) not null default 0 check (delivery_fee >= 0),
+  active       boolean not null default true,
+  sort         integer not null default 0,
+  updated_at   timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------
+-- Catalog
+-- ---------------------------------------------------------------------
+create table categories (
+  id             bigint generated always as identity primary key,
+  key            text unique,  -- stable system key used by code (quiz uses 'soap'); never shown
+  slug           text not null unique check (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  name_ar        text not null check (btrim(name_ar) <> ''),
+  name_en        text,
+  description_ar text,
+  sort           integer not null default 0,
+  active         boolean not null default true,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+create table products (
+  id             bigint generated always as identity (start with 1001) primary key,
+  category_id    bigint not null references categories(id) on delete restrict,
+  slug           text not null unique check (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  name_ar        text not null check (btrim(name_ar) <> ''),
+  name_en        text,
+  description_ar text not null check (btrim(description_ar) <> ''),
+  gender         gender_t,
+  tags           text[] not null default '{}',
+  is_bestseller  boolean not null default false,
+  active         boolean not null default false,
+  sort           integer not null default 0,
+  search         text generated always as (product_search_text(name_ar, name_en, tags)) stored,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create index products_category_idx on products (category_id, sort);
+create index products_search_trgm_idx on products using gin (search extensions.gin_trgm_ops);
+
+create table product_images (
+  id         bigint generated always as identity primary key,
+  product_id bigint not null references products(id) on delete cascade,
+  path       text not null,  -- object path inside the product-images bucket
+  alt_ar     text,
+  sort       integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index product_images_product_idx on product_images (product_id, sort);
+
+create table product_variants (
+  id                  bigint generated always as identity primary key,
+  product_id          bigint not null references products(id) on delete cascade,
+  label               text not null check (btrim(label) <> ''),
+  sku                 text unique,
+  price               numeric(10,3) not null check (price > 0),
+  compare_at_price    numeric(10,3) check (compare_at_price is null or compare_at_price > 0),  -- UI shows strikethrough only when > price
+  stock               integer not null default 0 check (stock >= 0),
+  low_stock_threshold integer not null default 5 check (low_stock_threshold >= 0),
+  active              boolean not null default true,
+  sort                integer not null default 0,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now()
+);
+create index product_variants_product_idx on product_variants (product_id, sort);
+
+-- Slug: admin-editable; auto from name_en, else p-<id>. Never raw Arabic.
+create or replace function products_before_write()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  new.tags := normalize_tags(new.tags);
+  new.name_en := nullif(btrim(new.name_en), '');
+  if new.slug is null or btrim(new.slug) = '' then
+    new.slug := nullif(slugify(new.name_en), '');
+    if new.slug is null then
+      new.slug := 'p-' || new.id;
+    elsif exists (select 1 from products p where p.slug = new.slug and p.id <> new.id) then
+      new.slug := new.slug || '-' || new.id;
+    end if;
+  else
+    new.slug := slugify(new.slug);
+    if new.slug = '' then raise exception 'INVALID_SLUG'; end if;
+  end if;
+  return new;
+end $$;
+create trigger products_before_write before insert or update on products
+  for each row execute function products_before_write();
+
+create or replace function categories_before_write()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  new.name_en := nullif(btrim(new.name_en), '');
+  if new.slug is null or btrim(new.slug) = '' then
+    new.slug := coalesce(nullif(slugify(new.name_en), ''), 'c-' || new.id);
+  else
+    new.slug := slugify(new.slug);
+    if new.slug = '' then raise exception 'INVALID_SLUG'; end if;
+  end if;
+  return new;
+end $$;
+create trigger categories_before_write before insert or update on categories
+  for each row execute function categories_before_write();
+
+-- ---------------------------------------------------------------------
+-- Offers & coupons
+-- ---------------------------------------------------------------------
+create table offers (
+  id             bigint generated always as identity primary key,
+  name_ar        text not null check (btrim(name_ar) <> ''),
+  description_ar text,
+  category_id    bigint not null references categories(id) on delete cascade,
+  quantity       integer not null check (quantity >= 2),
+  bundle_price   numeric(10,3) not null check (bundle_price > 0),
+  starts_at      timestamptz not null,
+  ends_at        timestamptz not null,
+  active         boolean not null default true,
+  show_countdown boolean not null default true,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  check (ends_at > starts_at),
+  -- Only one active bundle offer per category at any moment.
+  constraint offers_one_active_per_category
+    exclude using gist (category_id with =, tstzrange(starts_at, ends_at) with &&) where (active)
+);
+
+create table coupons (
+  id                     bigint generated always as identity primary key,
+  code                   text not null unique check (code ~ '^[A-Z0-9_-]{3,32}$'),  -- stored uppercase
+  type                   coupon_type not null,
+  value                  numeric(10,3) not null check (value > 0),
+  max_discount           numeric(10,3) check (max_discount is null or max_discount > 0),  -- percent coupons only
+  min_order              numeric(10,3) not null default 0 check (min_order >= 0),
+  max_uses               integer check (max_uses is null or max_uses > 0),
+  used_count             integer not null default 0 check (used_count >= 0),
+  max_per_phone          integer check (max_per_phone is null or max_per_phone > 0),
+  starts_at              timestamptz,
+  ends_at                timestamptz,
+  combinable_with_offers boolean not null default true,
+  active                 boolean not null default true,
+  created_at             timestamptz not null default now(),
+  updated_at             timestamptz not null default now(),
+  check (type <> 'percent' or value <= 100),
+  check (starts_at is null or ends_at is null or ends_at > starts_at)
+);
+
+create or replace function coupons_before_write()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  new.code := upper(btrim(western_digits(new.code)));
+  return new;
+end $$;
+create trigger coupons_before_write before insert or update on coupons
+  for each row execute function coupons_before_write();
+
+-- ---------------------------------------------------------------------
+-- Customers & staff
+-- ---------------------------------------------------------------------
+create table profiles (
+  id         uuid primary key references auth.users(id) on delete cascade,
+  full_name  text check (full_name is null or char_length(full_name) <= 100),
+  phone      text check (phone is null or phone ~ '^9627[789][0-9]{7}$'),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create or replace function profiles_before_write()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  new.full_name := nullif(normalize_person_name(new.full_name), '');
+  if new.full_name is not null and not is_valid_person_name(new.full_name) then
+    raise exception 'INVALID_NAME';
+  end if;
+  if new.phone is not null and btrim(new.phone) <> '' then
+    new.phone := normalize_phone(new.phone);
+    if new.phone is null then raise exception 'INVALID_PHONE'; end if;
+  else
+    new.phone := null;
+  end if;
+  return new;
+end $$;
+create trigger profiles_before_write before insert or update on profiles
+  for each row execute function profiles_before_write();
+
+create table addresses (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  label          text check (label is null or char_length(label) <= 40),
+  full_name      text not null check (char_length(btrim(full_name)) between 2 and 80),
+  phone          text not null check (phone ~ '^9627[789][0-9]{7}$'),
+  governorate_id smallint not null references governorates(id),
+  area           text not null check (char_length(btrim(area)) between 2 and 80),
+  details        text not null check (char_length(btrim(details)) between 3 and 300),
+  is_default     boolean not null default false,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create index addresses_user_idx on addresses (user_id);
+create unique index addresses_one_default_idx on addresses (user_id) where is_default;
+
+-- Normalizes phone; first address becomes default; setting a default clears the previous one.
+create or replace function addresses_before_write()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  new.full_name := normalize_person_name(new.full_name);
+  if not is_valid_person_name(new.full_name) then raise exception 'INVALID_NAME'; end if;
+  new.phone := normalize_phone(new.phone);
+  if new.phone is null then raise exception 'INVALID_PHONE'; end if;
+  if tg_op = 'INSERT' and not exists (select 1 from addresses a where a.user_id = new.user_id) then
+    new.is_default := true;
+  end if;
+  if new.is_default then
+    update addresses a set is_default = false
+    where a.user_id = new.user_id and a.id <> new.id and a.is_default;
+  end if;
+  return new;
+end $$;
+create trigger addresses_before_write before insert or update on addresses
+  for each row execute function addresses_before_write();
+
+create table staff (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  role       staff_role not null default 'staff',
+  active     boolean not null default true,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------
+-- Orders
+-- ---------------------------------------------------------------------
+create sequence order_number_seq start with 10001;
+
+create table orders (
+  id                   uuid primary key default gen_random_uuid(),
+  order_number         text not null unique default ('SH-' || nextval('order_number_seq')),
+  public_token         uuid not null unique default gen_random_uuid(),
+  user_id              uuid references auth.users(id) on delete set null,
+  customer_name        text not null,
+  phone                text not null check (phone ~ '^9627[789][0-9]{7}$'),
+  governorate_id       smallint not null references governorates(id),
+  governorate_name     text not null,  -- snapshot
+  area                 text not null,
+  address_details      text not null,
+  notes                text,
+  payment_method       payment_method not null,
+  payment_status       payment_status not null,
+  status               order_status not null default 'new',
+  subtotal             numeric(10,3) not null check (subtotal >= 0),
+  bundle_discount      numeric(10,3) not null default 0 check (bundle_discount >= 0),
+  coupon_id            bigint references coupons(id) on delete set null,
+  coupon_code          text,
+  coupon_discount      numeric(10,3) not null default 0 check (coupon_discount >= 0),
+  delivery_fee         numeric(10,3) not null default 0 check (delivery_fee >= 0),
+  total                numeric(10,3) not null check (total >= 0),
+  applied_offers       jsonb not null default '[]',  -- snapshot of bundle offers applied
+  payment_reference    text,
+  payment_proof_path   text,  -- object path inside the payment-proofs bucket
+  payment_submitted_at timestamptz,
+  paid_at              timestamptz,
+  payment_verified_by  uuid references auth.users(id) on delete set null,
+  delivered_at         timestamptz,
+  cancelled_at         timestamptz,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+create index orders_phone_created_idx on orders (phone, created_at desc);
+create index orders_user_created_idx on orders (user_id, created_at desc);
+create index orders_status_created_idx on orders (status, created_at desc);
+create index orders_created_idx on orders (created_at desc);
+create index orders_cliq_pending_idx on orders (created_at)
+  where payment_method = 'cliq' and payment_status in ('awaiting_transfer', 'awaiting_verification');
+create index orders_coupon_phone_idx on orders (coupon_id, phone) where coupon_id is not null;
+
+create table order_items (
+  id              bigint generated always as identity primary key,
+  order_id        uuid not null references orders(id) on delete cascade,
+  variant_id      bigint references product_variants(id) on delete set null,
+  product_id      bigint references products(id) on delete set null,
+  product_name_ar text not null,  -- snapshots: never change retroactively
+  product_name_en text,
+  variant_label   text not null,
+  sku             text,
+  unit_price      numeric(10,3) not null check (unit_price >= 0),
+  quantity        integer not null check (quantity > 0),
+  line_total      numeric(10,3) not null check (line_total >= 0)
+);
+create index order_items_order_idx on order_items (order_id);
+create index order_items_product_idx on order_items (product_id);
+
+create table order_status_history (
+  id          bigint generated always as identity primary key,
+  order_id    uuid not null references orders(id) on delete cascade,
+  from_status order_status,  -- NULL for the creation entry
+  to_status   order_status not null,
+  note        text,
+  changed_by  uuid references auth.users(id) on delete set null,
+  by_customer boolean not null default false,
+  -- Payment changes (verify, COD paid on delivery, refund due, refunded). A payment-only event
+  -- has from_status = to_status; customer timelines skip those rows.
+  payment_from payment_status,
+  payment_to   payment_status,
+  created_at  timestamptz not null default now()
+);
+create index order_status_history_order_idx on order_status_history (order_id, created_at);
+
+-- Failed order-number + phone lookups (track_order / cancel_own_order brute-force protection).
+-- Written only by _lookup_order_by_number(); no API role can read or write it.
+create table order_lookup_failures (
+  id           bigint generated always as identity primary key,
+  order_number text not null,
+  created_at   timestamptz not null default now()
+);
+create index order_lookup_failures_number_idx on order_lookup_failures (order_number, created_at);
+create index order_lookup_failures_created_idx on order_lookup_failures (created_at);
+
+-- Internal staff notes (kept out of orders so customers can never read them).
+create table order_notes (
+  id         bigint generated always as identity primary key,
+  order_id   uuid not null references orders(id) on delete cascade,
+  body       text not null check (char_length(btrim(body)) between 1 and 2000),
+  created_by uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index order_notes_order_idx on order_notes (order_id, created_at);
+
+-- ---------------------------------------------------------------------
+-- Stock movements — written ONLY by the trigger below, so no stock change can skip the log.
+-- RPCs set transaction-local context (app.stock_reason / app.stock_order_id / app.stock_note).
+-- ---------------------------------------------------------------------
+create table stock_movements (
+  id            bigint generated always as identity primary key,
+  variant_id    bigint references product_variants(id) on delete set null,
+  change        integer not null check (change <> 0),
+  balance_after integer not null,
+  reason        stock_reason not null,
+  order_id      uuid references orders(id) on delete set null,
+  note          text,
+  created_by    uuid references auth.users(id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+create index stock_movements_variant_idx on stock_movements (variant_id, created_at desc);
+create index stock_movements_created_idx on stock_movements (created_at desc);
+
+create or replace function log_stock_movement()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_change integer;
+begin
+  if tg_op = 'INSERT' then
+    v_change := new.stock;
+  else
+    v_change := new.stock - old.stock;
+  end if;
+  if v_change = 0 then
+    return null;
+  end if;
+  insert into stock_movements (variant_id, change, balance_after, reason, order_id, note, created_by)
+  values (
+    new.id, v_change, new.stock,
+    coalesce(nullif(current_setting('app.stock_reason', true), ''), 'manual')::stock_reason,
+    nullif(current_setting('app.stock_order_id', true), '')::uuid,
+    nullif(current_setting('app.stock_note', true), ''),
+    auth.uid());
+  return null;
+end $$;
+create trigger product_variants_stock_log after insert or update of stock on product_variants
+  for each row execute function log_stock_movement();
+
+-- ---------------------------------------------------------------------
+-- Reviews
+-- ---------------------------------------------------------------------
+create table reviews (
+  id               bigint generated always as identity primary key,
+  order_id         uuid not null unique references orders(id) on delete cascade,  -- one per order
+  rating           smallint not null check (rating between 1 and 5),
+  body             text check (body is null or char_length(body) <= 1000),
+  display_name     text not null,  -- first name only
+  governorate_name text,
+  status           review_status not null default 'pending',
+  featured         boolean not null default false,
+  moderated_by     uuid references auth.users(id) on delete set null,
+  moderated_at     timestamptz,
+  created_at       timestamptz not null default now(),
+  check (not featured or status = 'approved')
+);
+create index reviews_public_idx on reviews (status, featured, created_at desc);
+
+create or replace function reviews_before_update()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.status <> 'approved' then new.featured := false; end if;
+  if new.status is distinct from old.status or new.featured is distinct from old.featured then
+    new.moderated_by := auth.uid();
+    new.moderated_at := now();
+  end if;
+  return new;
+end $$;
+create trigger reviews_before_update before update on reviews
+  for each row execute function reviews_before_update();
+
+-- ---------------------------------------------------------------------
+-- Skin quiz (admin-editable; content is created by the owner, not seeded)
+-- ---------------------------------------------------------------------
+create table quiz_questions (
+  id          bigint generated always as identity primary key,
+  question_ar text not null check (btrim(question_ar) <> ''),
+  sort        integer not null default 0,
+  active      boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create table quiz_options (
+  id          bigint generated always as identity primary key,
+  question_id bigint not null references quiz_questions(id) on delete cascade,
+  label_ar    text not null check (btrim(label_ar) <> ''),
+  tags        text[] not null default '{}',
+  sort        integer not null default 0,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index quiz_options_question_idx on quiz_options (question_id, sort);
+
+create or replace function quiz_options_before_write()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  new.tags := normalize_tags(new.tags);
+  return new;
+end $$;
+create trigger quiz_options_before_write before insert or update on quiz_options
+  for each row execute function quiz_options_before_write();
+
+-- ---------------------------------------------------------------------
+-- updated_at triggers
+-- ---------------------------------------------------------------------
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'settings', 'governorates', 'categories', 'products', 'product_variants', 'offers', 'coupons',
+    'profiles', 'addresses', 'orders', 'quiz_questions', 'quiz_options'
+  ] loop
+    execute format('create trigger %I before update on %I for each row execute function set_updated_at()',
+                   t || '_set_updated_at', t);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Storefront catalog view: one row per visible product with its "from" price, stock state and
+-- first image, so the shop can filter / sort / search / paginate in the database.
+-- security_invoker = true → the caller's RLS applies (only active, visible rows are aggregated).
+-- ---------------------------------------------------------------------
+create or replace view catalog_products with (security_invoker = true) as
+select p.id, p.slug, p.name_ar, p.name_en, p.description_ar, p.gender, p.tags, p.is_bestseller,
+       p.sort, p.created_at, p.search,
+       p.category_id, c.key as category_key, c.slug as category_slug, c.name_ar as category_name_ar,
+       v.from_price, v.from_compare_at_price, v.in_stock, v.variant_count,
+       v.default_variant_id, v.default_variant_stock,
+       img.path as image_path, img.alt_ar as image_alt_ar
+from products p
+join categories c on c.id = p.category_id
+cross join lateral (
+  select min(pv.price) as from_price,
+         (array_agg(pv.compare_at_price order by pv.price, pv.sort, pv.id))[1] as from_compare_at_price,
+         coalesce(bool_or(pv.stock > 0), false) as in_stock,
+         count(*)::integer as variant_count,
+         -- cheapest in-stock variant first (used by "add to cart" on single-variant cards)
+         (array_agg(pv.id    order by (pv.stock > 0) desc, pv.price, pv.sort, pv.id))[1] as default_variant_id,
+         (array_agg(pv.stock order by (pv.stock > 0) desc, pv.price, pv.sort, pv.id))[1] as default_variant_stock
+  from product_variants pv
+  where pv.product_id = p.id and pv.active
+) v
+left join lateral (
+  select i.path, i.alt_ar from product_images i where i.product_id = p.id order by i.sort, i.id limit 1
+) img on true
+where p.active and c.active and v.variant_count > 0;
+
+-- ---------------------------------------------------------------------
+-- Seed data (no invented values: fees 0, settings empty)
+-- ---------------------------------------------------------------------
+insert into settings (id) values (true);
+
+insert into governorates (id, name_ar, sort) values
+  (1,  'عمّان',   1),
+  (2,  'إربد',    2),
+  (3,  'الزرقاء', 3),
+  (4,  'البلقاء', 4),
+  (5,  'مادبا',   5),
+  (6,  'جرش',     6),
+  (7,  'عجلون',   7),
+  (8,  'المفرق',  8),
+  (9,  'الكرك',   9),
+  (10, 'الطفيلة', 10),
+  (11, 'معان',    11),
+  (12, 'العقبة',  12);
+
+insert into categories (key, slug, name_ar, name_en, sort) values
+  ('soap',           'soap',           'صابون الشامي',      null,             1),
+  ('twins_perfumes', 'twins-perfumes', 'عطور TWINS',        'TWINS Perfumes', 2),
+  ('twins_unity',    'twins-unity',    'TWINS UNITY',       'TWINS UNITY',    3),
+  ('gift_boxes',     'gift-boxes',     'البوكسات والهدايا', null,             4);
+
+
+===== FILE: supabase\03_functions.sql =====
+
+-- =====================================================================
+-- Shami Cosmetics — 03 functions (RPC API)
+-- Run after 02_rls.sql.
+--
+-- * Every function is SECURITY DEFINER with SET search_path = public.
+-- * Every error is RAISE EXCEPTION '<CODE>' where CODE is a key of strings.errors
+--   in /assets/js/strings.ar.js. The frontend maps it to Arabic.
+-- * Prices, discounts, delivery and totals are computed ONLY here (_price_cart).
+-- * Public RPCs use plain parameter names (what supabase.rpc() sends) and
+--   #variable_conflict use_column; parameters are copied into v_ locals first.
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- Internal helpers (not callable by clients — see grants at the bottom)
+-- ---------------------------------------------------------------------
+
+-- Validates the cart payload [{variant_id, qty}] and merges duplicate variants.
+create or replace function _normalize_cart_items(p_items jsonb)
+returns table (variant_id bigint, qty integer)
+language plpgsql immutable security definer set search_path = public as $$
+begin
+  if p_items is null or jsonb_typeof(p_items) <> 'array' then
+    raise exception 'INVALID_CART';
+  end if;
+  if jsonb_array_length(p_items) = 0 then
+    raise exception 'EMPTY_CART';
+  end if;
+  if jsonb_array_length(p_items) > 50 then
+    raise exception 'INVALID_CART';
+  end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_items) e
+    where not coalesce(
+      jsonb_typeof(e) = 'object'
+      and (e ->> 'variant_id') ~ '^[0-9]{1,18}$'
+      and case when (e ->> 'qty') ~ '^[0-9]{1,3}$' then (e ->> 'qty')::integer >= 1 else false end,
+      false)
+  ) then
+    raise exception 'INVALID_CART';
+  end if;
+
+  return query
+    select (e ->> 'variant_id')::bigint, sum((e ->> 'qty')::integer)::integer
+    from jsonb_array_elements(p_items) e
+    group by 1;
+
+  if exists (
+    select 1 from jsonb_array_elements(p_items) e
+    group by (e ->> 'variant_id') having sum((e ->> 'qty')::integer) > 999
+  ) then
+    raise exception 'INVALID_CART';
+  end if;
+end $$;
+
+-- Transaction-local context read by the log_stock_movement trigger.
+create or replace function _set_stock_context(p_reason text, p_order_id uuid, p_note text)
+returns void language sql security definer set search_path = public as $$
+  select set_config('app.stock_reason', coalesce(p_reason, ''), true),
+         set_config('app.stock_order_id', coalesce(p_order_id::text, ''), true),
+         set_config('app.stock_note', coalesce(p_note, ''), true);
+$$;
+
+create or replace function _can_transition(p_from order_status, p_to order_status)
+returns boolean language sql immutable security definer set search_path = public as $$
+  select (p_from::text, p_to::text) in (
+    ('new', 'confirmed'), ('new', 'cancelled'),
+    ('confirmed', 'with_courier'), ('confirmed', 'cancelled'),
+    ('with_courier', 'delivered'), ('with_courier', 'returned'), ('with_courier', 'cancelled'),
+    ('delivered', 'returned')
+  );
+$$;
+
+-- ---------------------------------------------------------------------
+-- _price_cart — the single source of truth for pricing.
+-- Order: subtotal → bundle discount → coupon discount → delivery (0 if threshold met) → total.
+-- Lines with an error are excluded from all totals. Never raises for coupon/stock problems;
+-- it reports them so the cart can show them. place_order turns them into exceptions.
+-- VOLATILE on purpose: inside place_order it must see rows as of *after* the FOR UPDATE locks.
+-- ---------------------------------------------------------------------
+create or replace function _price_cart(p_items jsonb, p_governorate_id integer, p_coupon_code text, p_phone text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+declare
+  v_settings        settings%rowtype;
+  v_lines           jsonb;
+  v_has_errors      boolean;
+  v_subtotal        numeric(10,3);
+  v_bundle          numeric(10,3);
+  v_bundles         jsonb;
+  v_code            text := nullif(upper(btrim(western_digits(p_coupon_code))), '');
+  v_coupon          coupons%rowtype;
+  v_coupon_found    boolean := false;
+  v_coupon_error    text;
+  v_coupon_discount numeric(10,3) := 0;
+  v_base            numeric(10,3);
+  v_used            integer;
+  v_gov             governorates%rowtype;
+  v_gov_error       text;
+  v_fee             numeric(10,3);
+  v_free            boolean := false;
+  v_goods           numeric(10,3);
+  v_methods         jsonb := '["cod"]';
+begin
+  select * into v_settings from settings where id;
+
+  -- 1. Lines (prices always from the database)
+  with req as (
+    select * from _normalize_cart_items(p_items)
+  ),
+  lines as (
+    select r.variant_id as req_variant_id, r.qty,
+           v.id as vid, v.product_id, v.label, v.sku, v.price, v.compare_at_price, v.stock,
+           (v.active and p.active and c.active) as sellable,
+           p.name_ar, p.name_en, p.slug, p.category_id,
+           (select i.path from product_images i where i.product_id = p.id order by i.sort, i.id limit 1) as image_path
+    from req r
+    left join product_variants v on v.id = r.variant_id
+    left join products p on p.id = v.product_id
+    left join categories c on c.id = p.category_id
+  )
+  select jsonb_agg(jsonb_build_object(
+           'variant_id',       l.req_variant_id,
+           'product_id',       l.product_id,
+           'product_slug',     l.slug,
+           'product_name_ar',  l.name_ar,
+           'product_name_en',  l.name_en,
+           'variant_label',    l.label,
+           'sku',              l.sku,
+           'image_path',       l.image_path,
+           'category_id',      l.category_id,
+           'unit_price',       l.price,
+           'compare_at_price', l.compare_at_price,
+           'quantity',         l.qty,
+           'available_stock',  case when l.sellable then l.stock else 0 end,
+           'line_total',       coalesce(l.price * l.qty, 0),
+           'error', case
+                      when l.vid is null then 'VARIANT_NOT_FOUND'
+                      when not l.sellable then 'VARIANT_INACTIVE'
+                      when l.stock = 0 then 'OUT_OF_STOCK'
+                      when l.qty > l.stock then 'INSUFFICIENT_STOCK'
+                    end
+         ) order by l.req_variant_id)
+  into v_lines
+  from lines l;
+
+  select coalesce(bool_or(l ->> 'error' is not null), false),
+         coalesce(sum((l ->> 'line_total')::numeric) filter (where l ->> 'error' is null), 0)
+  into v_has_errors, v_subtotal
+  from jsonb_array_elements(v_lines) l;
+
+  -- 2. Bundle offers: eligible units sorted by price DESC, grouped into sets of N,
+  --    each full set costs bundle_price; the rest stay at full price.
+  with valid as (
+    select (l ->> 'variant_id')::bigint as vid, (l ->> 'category_id')::bigint as cat,
+           (l ->> 'unit_price')::numeric as price, (l ->> 'quantity')::integer as qty
+    from jsonb_array_elements(v_lines) l
+    where l ->> 'error' is null
+  ),
+  units as (
+    select v.cat, v.price,
+           row_number() over (partition by v.cat order by v.price desc, v.vid) as rn
+    from valid v
+    cross join lateral generate_series(1, v.qty)
+  ),
+  running as (
+    select o.id, o.name_ar, o.category_id, o.quantity as n, o.bundle_price,
+           (select count(*) from units u where u.cat = o.category_id) / o.quantity as sets
+    from offers o
+    where o.active and now() >= o.starts_at and now() < o.ends_at
+  ),
+  disc as (
+    select r.*,
+           greatest(0, (select coalesce(sum(u.price), 0) from units u
+                        where u.cat = r.category_id and u.rn <= r.sets * r.n)
+                       - r.sets * r.bundle_price) as discount
+    from running r
+    where r.sets > 0
+  )
+  select coalesce(sum(d.discount), 0),
+         coalesce(jsonb_agg(jsonb_build_object(
+                    'offer_id', d.id, 'name_ar', d.name_ar, 'quantity', d.n,
+                    'bundle_price', d.bundle_price, 'sets', d.sets, 'discount', d.discount
+                  ) order by d.id) filter (where d.discount > 0), '[]'::jsonb)
+  into v_bundle, v_bundles
+  from disc d;
+
+  v_base := v_subtotal - v_bundle;
+
+  -- 3. Coupon (applied after bundles, never below zero)
+  if v_code is not null then
+    select * into v_coupon from coupons c where c.code = v_code;
+    v_coupon_found := found;
+    if not v_coupon_found then
+      v_coupon_error := 'COUPON_NOT_FOUND';
+    elsif not v_coupon.active then
+      v_coupon_error := 'COUPON_INACTIVE';
+    elsif v_coupon.starts_at is not null and now() < v_coupon.starts_at then
+      v_coupon_error := 'COUPON_NOT_STARTED';
+    elsif v_coupon.ends_at is not null and now() >= v_coupon.ends_at then
+      v_coupon_error := 'COUPON_EXPIRED';
+    elsif v_coupon.max_uses is not null and v_coupon.used_count >= v_coupon.max_uses then
+      v_coupon_error := 'COUPON_USAGE_LIMIT';
+    elsif not v_coupon.combinable_with_offers and v_bundle > 0 then
+      v_coupon_error := 'COUPON_NOT_COMBINABLE';
+    elsif v_base < v_coupon.min_order then
+      v_coupon_error := 'COUPON_MIN_ORDER';
+    end if;
+
+    if v_coupon_error is null and v_coupon.max_per_phone is not null and p_phone is not null then
+      select count(*) into v_used
+      from orders o
+      where o.coupon_id = v_coupon.id and o.phone = p_phone and o.status <> 'cancelled';
+      if v_used >= v_coupon.max_per_phone then
+        v_coupon_error := 'COUPON_PHONE_LIMIT';
+      end if;
+    end if;
+
+    if v_coupon_error is null then
+      if v_coupon.type = 'percent' then
+        v_coupon_discount := round(v_base * v_coupon.value / 100, 3);
+        if v_coupon.max_discount is not null then
+          v_coupon_discount := least(v_coupon_discount, v_coupon.max_discount);
+        end if;
+      else
+        v_coupon_discount := v_coupon.value;
+      end if;
+      v_coupon_discount := greatest(0, least(v_coupon_discount, v_base));
+    end if;
+  end if;
+
+  v_goods := v_base - v_coupon_discount;
+
+  -- 4. Delivery
+  if p_governorate_id is not null then
+    select * into v_gov from governorates g where g.id = p_governorate_id and g.active;
+    if not found then
+      v_gov_error := 'INVALID_GOVERNORATE';
+    else
+      v_fee := v_gov.delivery_fee;
+      if v_settings.free_delivery_threshold is not null and v_goods >= v_settings.free_delivery_threshold then
+        v_fee := 0;
+        v_free := true;
+      end if;
+    end if;
+  end if;
+
+  if v_settings.cliq_alias is not null and v_settings.cliq_account_name is not null then
+    v_methods := '["cod", "cliq"]';
+  end if;
+
+  return jsonb_build_object(
+    'items',                   coalesce(v_lines, '[]'::jsonb),
+    'has_errors',              v_has_errors,
+    'subtotal',                v_subtotal,
+    'bundle_discount',         v_bundle,
+    'bundles',                 v_bundles,
+    'coupon',                  case when v_code is null then null else jsonb_build_object(
+                                 'code', v_code,
+                                 'type', case when v_coupon_found then v_coupon.type end,
+                                 'value', case when v_coupon_found then v_coupon.value end,
+                                 'discount', v_coupon_discount,
+                                 'error', v_coupon_error) end,
+    'coupon_discount',         v_coupon_discount,
+    'governorate_id',          p_governorate_id,
+    'governorate_error',       v_gov_error,
+    'delivery_fee',            v_fee,  -- null until a governorate is chosen
+    'free_delivery_threshold', v_settings.free_delivery_threshold,
+    'free_delivery_applied',   v_free,
+    'total',                   v_goods + coalesce(v_fee, 0),
+    'store_open',              coalesce(v_settings.store_open, false),
+    'payment_methods',         v_methods
+  );
+end $$;
+
+-- Order status change with every rule enforced; used by staff and customer functions.
+create or replace function _apply_status_change(
+  p_order_id uuid, p_new order_status, p_note text, p_restock boolean, p_actor uuid, p_by_customer boolean)
+returns orders language plpgsql security definer set search_path = public as $$
+declare
+  v_order   orders%rowtype;
+  v_old     order_status;
+  v_old_pay payment_status;
+  v_new_pay payment_status;
+begin
+  select * into v_order from orders o where o.id = p_order_id for update;
+  if not found then
+    raise exception 'ORDER_NOT_FOUND';
+  end if;
+  v_old := v_order.status;
+  v_old_pay := v_order.payment_status;
+
+  if not _can_transition(v_old, p_new) then
+    raise exception 'INVALID_TRANSITION';
+  end if;
+  if p_new = 'with_courier' and v_order.payment_method = 'cliq' and v_order.payment_status <> 'paid' then
+    raise exception 'PAYMENT_NOT_VERIFIED';
+  end if;
+
+  -- Cancelled → always restock. Returned → restock only when asked (returned cosmetics may not be resellable).
+  if p_new = 'cancelled' or (p_new = 'returned' and coalesce(p_restock, false)) then
+    perform 1 from product_variants pv
+    where pv.id in (select oi.variant_id from order_items oi where oi.order_id = v_order.id)
+    order by pv.id
+    for update;
+
+    perform _set_stock_context(case when p_new = 'cancelled' then 'cancel' else 'return' end, v_order.id, p_note);
+    update product_variants pv
+    set stock = pv.stock + x.qty
+    from (
+      select oi.variant_id, sum(oi.quantity)::integer as qty
+      from order_items oi
+      where oi.order_id = v_order.id and oi.variant_id is not null
+      group by oi.variant_id
+    ) x
+    where pv.id = x.variant_id;
+    perform _set_stock_context(null, null, null);
+  end if;
+
+  -- A cancelled order releases its coupon use.
+  if p_new = 'cancelled' and v_order.coupon_id is not null then
+    update coupons c set used_count = greatest(c.used_count - 1, 0) where c.id = v_order.coupon_id;
+  end if;
+
+  -- Payment follow-ups: COD is paid on delivery; a paid CliQ order that is cancelled or
+  -- returned now owes the customer a refund (the owner settles it with mark_refunded).
+  v_new_pay := case
+    when p_new = 'delivered' and v_order.payment_method = 'cod' then 'paid'
+    when p_new in ('cancelled', 'returned') and v_order.payment_method = 'cliq' and v_old_pay = 'paid' then 'refund_due'
+    else v_old_pay
+  end;
+
+  update orders o
+  set status         = p_new,
+      delivered_at   = case when p_new = 'delivered' then now() else o.delivered_at end,
+      cancelled_at   = case when p_new = 'cancelled' then now() else o.cancelled_at end,
+      payment_status = v_new_pay,
+      paid_at        = case when p_new = 'delivered' and o.payment_method = 'cod' then now() else o.paid_at end
+  where o.id = v_order.id
+  returning * into v_order;
+
+  insert into order_status_history (order_id, from_status, to_status, note, changed_by, by_customer, payment_from, payment_to)
+  values (v_order.id, v_old, p_new, p_note, p_actor, coalesce(p_by_customer, false),
+          case when v_new_pay is distinct from v_old_pay then v_old_pay end,
+          case when v_new_pay is distinct from v_old_pay then v_new_pay end);
+
+  return v_order;
+end $$;
+
+-- Safe, limited order view for the customer (success page, tracking, account).
+create or replace function _order_public_json(p_order_id uuid)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'order_number',     o.order_number,
+    'public_token',     o.public_token,
+    'status',           o.status,
+    'payment_method',   o.payment_method,
+    'payment_status',   o.payment_status,
+    'created_at',       o.created_at,
+    'customer_name',    o.customer_name,
+    'phone',            o.phone,
+    'governorate_name', o.governorate_name,
+    'area',             o.area,
+    'address_details',  o.address_details,
+    'notes',            o.notes,
+    'items', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'variant_id', i.variant_id, 'product_id', i.product_id,
+               'product_name_ar', i.product_name_ar, 'product_name_en', i.product_name_en,
+               'variant_label', i.variant_label, 'unit_price', i.unit_price,
+               'quantity', i.quantity, 'line_total', i.line_total) order by i.id), '[]'::jsonb)
+      from order_items i where i.order_id = o.id),
+    'subtotal',         o.subtotal,
+    'bundle_discount',  o.bundle_discount,
+    'applied_offers',   o.applied_offers,
+    'coupon_code',      o.coupon_code,
+    'coupon_discount',  o.coupon_discount,
+    'delivery_fee',     o.delivery_fee,
+    'total',            o.total,
+    'history', (
+      select coalesce(jsonb_agg(jsonb_build_object('status', h.to_status, 'at', h.created_at)
+                                order by h.created_at, h.id), '[]'::jsonb)
+      from order_status_history h
+      where h.order_id = o.id and h.from_status is distinct from h.to_status),  -- skip payment-only rows
+    'payment_proof_submitted', (o.payment_proof_path is not null or o.payment_reference is not null),
+    'can_cancel',       o.status = 'new',
+    'can_upload_proof', o.payment_method = 'cliq' and o.payment_status = 'awaiting_transfer'
+                        and o.status not in ('cancelled', 'returned')
+                        and (select count(*) from storage.objects so
+                             where so.bucket_id = 'payment-proofs' and so.name like o.public_token::text || '/%') < 3,
+    'review_submitted', exists (select 1 from reviews r where r.order_id = o.id),
+    'can_review',       o.status = 'delivered' and not exists (select 1 from reviews r where r.order_id = o.id),
+    -- CliQ transfer details only while the CliQ order is unpaid.
+    'cliq', case
+              when o.payment_method = 'cliq'
+               and o.payment_status in ('awaiting_transfer', 'awaiting_verification')
+               and o.status not in ('cancelled', 'returned')
+              then jsonb_build_object(
+                     'alias', s.cliq_alias,
+                     'account_name', s.cliq_account_name,
+                     'amount', o.total,
+                     'window_hours', s.cliq_window_hours)
+            end
+  )
+  from orders o
+  cross join settings s
+  where o.id = p_order_id and s.id;
+$$;
+
+-- ---------------------------------------------------------------------
+-- Public: pricing & checkout
+-- ---------------------------------------------------------------------
+
+-- calculate_cart({ items: [{variant_id, qty}], governorate_id?, coupon_code?, phone? })
+create or replace function calculate_cart(items jsonb, governorate_id integer default null,
+                                          coupon_code text default null, phone text default null)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_items   jsonb   := items;
+  v_gov_id  integer := governorate_id;
+  v_code    text    := coupon_code;
+  v_phone   text    := normalize_phone(phone);
+begin
+  return _price_cart(v_items, v_gov_id, v_code, v_phone);
+end $$;
+
+-- place_order({ items, customer_name, phone, governorate_id, area, address_details, notes?,
+--               payment_method: 'cod'|'cliq', coupon_code? })
+create or replace function place_order(payload jsonb)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_payload   jsonb := payload;
+  v_settings  settings%rowtype;
+  v_name      text;
+  v_phone     text;
+  v_gov_id    integer;
+  v_area      text;
+  v_details   text;
+  v_notes     text;
+  v_method    text;
+  v_code      text;
+  v_items     jsonb;
+  v_cart      jsonb;
+  v_err       text;
+  v_coupon_id bigint;
+  v_order     orders%rowtype;
+begin
+  if v_payload is null or jsonb_typeof(v_payload) <> 'object' then
+    raise exception 'INVALID_CART';
+  end if;
+
+  v_name    := normalize_person_name(v_payload ->> 'customer_name');
+  v_phone   := normalize_phone(v_payload ->> 'phone');
+  v_area    := btrim(coalesce(v_payload ->> 'area', ''));
+  v_details := btrim(coalesce(v_payload ->> 'address_details', ''));
+  v_notes   := nullif(btrim(coalesce(v_payload ->> 'notes', '')), '');
+  v_method  := v_payload ->> 'payment_method';
+  v_code    := nullif(upper(btrim(western_digits(v_payload ->> 'coupon_code'))), '');
+  v_items   := v_payload -> 'items';
+
+  select * into v_settings from settings where id;
+  if not coalesce(v_settings.store_open, false) then
+    raise exception 'STORE_CLOSED';
+  end if;
+
+  -- Field validation
+  if not is_valid_person_name(v_name) then raise exception 'INVALID_NAME'; end if;
+  if v_phone is null then raise exception 'INVALID_PHONE'; end if;
+  if coalesce(v_payload ->> 'governorate_id', '') !~ '^[0-9]{1,4}$' then raise exception 'INVALID_GOVERNORATE'; end if;
+  v_gov_id := (v_payload ->> 'governorate_id')::integer;
+  if char_length(v_area) not between 2 and 80 or char_length(v_details) not between 3 and 300 then
+    raise exception 'INVALID_ADDRESS';
+  end if;
+  if char_length(coalesce(v_notes, '')) > 500 then raise exception 'TEXT_TOO_LONG'; end if;
+  if v_method is null or v_method not in ('cod', 'cliq') then raise exception 'INVALID_PAYMENT_METHOD'; end if;
+  if v_method = 'cliq' and (v_settings.cliq_alias is null or v_settings.cliq_account_name is null) then
+    raise exception 'INVALID_PAYMENT_METHOD';
+  end if;
+
+  -- Rate limit: max 3 orders per phone per hour (serialized per phone so parallel requests can't slip through)
+  perform pg_advisory_xact_lock(hashtextextended('place_order:' || v_phone, 0));
+  if (select count(*) from orders o where o.phone = v_phone and o.created_at > now() - interval '1 hour') >= 3 then
+    raise exception 'RATE_LIMITED';
+  end if;
+
+  -- Lock variant rows (in id order → no deadlocks) and the coupon row, then price.
+  perform 1 from product_variants pv
+  where pv.id in (select n.variant_id from _normalize_cart_items(v_items) n)
+  order by pv.id
+  for update;
+
+  if v_code is not null then
+    select c.id into v_coupon_id from coupons c where c.code = v_code for update;
+  end if;
+
+  v_cart := _price_cart(v_items, v_gov_id, v_code, v_phone);
+
+  select l ->> 'error' into v_err
+  from jsonb_array_elements(v_cart -> 'items') l
+  where l ->> 'error' is not null
+  limit 1;
+  if v_err is not null then raise exception '%', v_err; end if;
+  if v_cart ->> 'governorate_error' is not null then raise exception '%', v_cart ->> 'governorate_error'; end if;
+  if v_cart -> 'coupon' ->> 'error' is not null then raise exception '%', v_cart -> 'coupon' ->> 'error'; end if;
+
+  -- Order + snapshots
+  insert into orders (
+    user_id, customer_name, phone, governorate_id, governorate_name, area, address_details, notes,
+    payment_method, payment_status,
+    subtotal, bundle_discount, coupon_id, coupon_code, coupon_discount, delivery_fee, total, applied_offers)
+  select
+    auth.uid(), v_name, v_phone, g.id, g.name_ar, v_area, v_details, v_notes,
+    v_method::payment_method,
+    case when v_method = 'cliq' then 'awaiting_transfer' else 'unpaid' end::payment_status,
+    (v_cart ->> 'subtotal')::numeric, (v_cart ->> 'bundle_discount')::numeric,
+    v_coupon_id, case when v_coupon_id is not null then v_code end,
+    (v_cart ->> 'coupon_discount')::numeric, (v_cart ->> 'delivery_fee')::numeric,
+    (v_cart ->> 'total')::numeric, v_cart -> 'bundles'
+  from governorates g
+  where g.id = v_gov_id
+  returning * into v_order;
+
+  insert into order_items (order_id, variant_id, product_id, product_name_ar, product_name_en,
+                           variant_label, sku, unit_price, quantity, line_total)
+  select v_order.id, (l ->> 'variant_id')::bigint, (l ->> 'product_id')::bigint,
+         l ->> 'product_name_ar', l ->> 'product_name_en', l ->> 'variant_label', l ->> 'sku',
+         (l ->> 'unit_price')::numeric, (l ->> 'quantity')::integer, (l ->> 'line_total')::numeric
+  from jsonb_array_elements(v_cart -> 'items') l;
+
+  -- Stock (logged by trigger). CHECK (stock >= 0) is the last line of defence.
+  perform _set_stock_context('order', v_order.id, null);
+  begin
+    update product_variants pv
+    set stock = pv.stock - (l ->> 'quantity')::integer
+    from jsonb_array_elements(v_cart -> 'items') l
+    where pv.id = (l ->> 'variant_id')::bigint;
+  exception when check_violation then
+    raise exception 'OUT_OF_STOCK';
+  end;
+  perform _set_stock_context(null, null, null);
+
+  if v_coupon_id is not null then
+    update coupons c set used_count = c.used_count + 1 where c.id = v_coupon_id;
+  end if;
+
+  insert into order_status_history (order_id, from_status, to_status, changed_by, by_customer)
+  values (v_order.id, null, 'new', auth.uid(), true);
+
+  return jsonb_build_object(
+    'order_number',   v_order.order_number,
+    'public_token',   v_order.public_token,
+    'total',          v_order.total,
+    'payment_method', v_order.payment_method,
+    'payment_status', v_order.payment_status);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Public: order lookup, CliQ proof, cancellation, reviews
+-- ---------------------------------------------------------------------
+create or replace function get_order_by_token(token uuid)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_token uuid := token;
+  v_id    uuid;
+begin
+  select o.id into v_id from orders o where o.public_token = v_token;
+  if v_id is null then raise exception 'ORDER_NOT_FOUND'; end if;
+  return _order_public_json(v_id);
+end $$;
+
+-- Brute-force guard for order-number + phone lookups. Returns the order id, or NULL after
+-- recording a failed attempt. Raises RATE_LIMITED once an order number has 10 failed attempts
+-- within the last hour (successful lookups don't count). Callers must RETURN (not raise) on NULL,
+-- otherwise the recorded failure would be rolled back with the exception.
+create or replace function _lookup_order_by_number(p_order_number text, p_phone text)
+returns uuid language plpgsql volatile security definer set search_path = public as $$
+declare
+  v_number text := upper(btrim(western_digits(p_order_number)));
+  v_id     uuid;
+begin
+  if v_number ~ '^[0-9]+$' then v_number := 'SH-' || v_number; end if;
+  perform pg_advisory_xact_lock(hashtextextended('order_lookup:' || v_number, 0));
+
+  if (select count(*) from order_lookup_failures f
+      where f.order_number = v_number and f.created_at > now() - interval '1 hour') >= 10 then
+    raise exception 'RATE_LIMITED';
+  end if;
+
+  select o.id into v_id from orders o where o.order_number = v_number and o.phone = p_phone;
+  if v_id is null then
+    insert into order_lookup_failures (order_number) values (v_number);
+    delete from order_lookup_failures f where f.created_at < now() - interval '1 day';  -- housekeeping
+  end if;
+  return v_id;
+end $$;
+
+-- Accepts "SH-10001", "sh-10001" or "10001", and any phone format normalize_phone understands.
+-- Not found → returns {"error": "ORDER_NOT_FOUND"} (not raised, so the failed attempt is kept).
+create or replace function track_order(order_number text, phone text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_number text := order_number;
+  v_phone  text := normalize_phone(phone);
+  v_id     uuid;
+begin
+  if v_phone is null then raise exception 'INVALID_PHONE'; end if;
+  v_id := _lookup_order_by_number(v_number, v_phone);
+  if v_id is null then return jsonb_build_object('error', 'ORDER_NOT_FOUND'); end if;
+  return _order_public_json(v_id);
+end $$;
+
+-- Call AFTER uploading the receipt to payment-proofs/<public_token>/<file>. Either file or reference is enough.
+create or replace function attach_payment_proof(token uuid, file_path text default null, reference text default null)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_token uuid := token;
+  v_path  text := nullif(btrim(coalesce(file_path, '')), '');
+  v_ref   text := nullif(btrim(western_digits(reference)), '');
+  v_order orders%rowtype;
+begin
+  select * into v_order from orders o where o.public_token = v_token for update;
+  if not found then raise exception 'ORDER_NOT_FOUND'; end if;
+  if v_order.payment_method <> 'cliq' then raise exception 'INVALID_PAYMENT_METHOD'; end if;
+  if v_order.status in ('cancelled', 'returned') then raise exception 'ORDER_CANCELLED'; end if;
+  if v_order.payment_status = 'paid' then raise exception 'ALREADY_PAID'; end if;
+  if v_order.payment_status = 'awaiting_verification' then raise exception 'RECEIPT_ALREADY_UPLOADED'; end if;
+  if v_path is null and v_ref is null then raise exception 'PROOF_REQUIRED'; end if;
+  if char_length(coalesce(v_ref, '')) > 64 then raise exception 'TEXT_TOO_LONG'; end if;
+  if v_path is not null and (
+       v_path not like v_token::text || '/%'
+       or not exists (select 1 from storage.objects so where so.bucket_id = 'payment-proofs' and so.name = v_path)
+     ) then
+    raise exception 'INVALID_PROOF';
+  end if;
+
+  update orders o
+  set payment_proof_path   = coalesce(v_path, o.payment_proof_path),
+      payment_reference    = coalesce(v_ref, o.payment_reference),
+      payment_status       = 'awaiting_verification',
+      payment_submitted_at = now()
+  where o.id = v_order.id;
+
+  return _order_public_json(v_order.id);
+end $$;
+
+-- Guest cancellation (tracking page): order number + phone, only while status = new.
+-- Same brute-force guard as track_order; not found → returns {"error": "ORDER_NOT_FOUND"}.
+create or replace function cancel_own_order(order_number text, phone text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_number text := order_number;
+  v_phone  text := normalize_phone(phone);
+  v_id     uuid;
+  v_order  orders%rowtype;
+begin
+  if v_phone is null then raise exception 'INVALID_PHONE'; end if;
+  v_id := _lookup_order_by_number(v_number, v_phone);
+  if v_id is null then return jsonb_build_object('error', 'ORDER_NOT_FOUND'); end if;
+  select * into v_order from orders o where o.id = v_id for update;
+  if v_order.status <> 'new' then raise exception 'CANNOT_CANCEL'; end if;
+  perform _apply_status_change(v_order.id, 'cancelled', null, true, auth.uid(), true);
+  return _order_public_json(v_order.id);
+end $$;
+
+-- Logged-in customer cancellation, only while status = new.
+create or replace function cancel_my_order(order_id uuid)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_order_id uuid := order_id;
+  v_order    orders%rowtype;
+begin
+  if auth.uid() is null then raise exception 'NOT_AUTHORIZED'; end if;
+  select * into v_order from orders o where o.id = v_order_id and o.user_id = auth.uid() for update;
+  if not found then raise exception 'ORDER_NOT_FOUND'; end if;
+  if v_order.status <> 'new' then raise exception 'CANNOT_CANCEL'; end if;
+  perform _apply_status_change(v_order.id, 'cancelled', null, true, auth.uid(), true);
+  return _order_public_json(v_order.id);
+end $$;
+
+-- One review per delivered order; starts as pending until staff approve it.
+create or replace function submit_review(order_token uuid, rating integer, body text default null)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_token  uuid    := order_token;
+  v_rating integer := rating;
+  v_body   text    := nullif(btrim(coalesce(body, '')), '');
+  v_order  orders%rowtype;
+begin
+  select * into v_order from orders o where o.public_token = v_token;
+  if not found then raise exception 'ORDER_NOT_FOUND'; end if;
+  if v_order.status <> 'delivered' then raise exception 'ORDER_NOT_DELIVERED'; end if;
+  if v_rating is null or v_rating not between 1 and 5 then raise exception 'INVALID_RATING'; end if;
+  if char_length(coalesce(v_body, '')) > 1000 then raise exception 'TEXT_TOO_LONG'; end if;
+  if exists (select 1 from reviews r where r.order_id = v_order.id) then raise exception 'REVIEW_EXISTS'; end if;
+
+  begin
+    insert into reviews (order_id, rating, body, display_name, governorate_name)
+    values (v_order.id, v_rating, v_body, split_part(btrim(v_order.customer_name), ' ', 1), v_order.governorate_name);
+  exception when unique_violation then
+    raise exception 'REVIEW_EXISTS';
+  end;
+
+  return jsonb_build_object('status', 'pending');
+end $$;
+
+-- Approved reviews for a product (reviews belong to orders, which guests can't read).
+-- Returns { count, average, reviews: [{ rating, body, display_name, governorate_name, created_at }] }.
+create or replace function product_reviews(product_id bigint, max_rows integer default 10)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_product_id bigint  := product_id;
+  v_limit      integer := least(greatest(coalesce(max_rows, 10), 1), 50);
+begin
+  return (
+    with r as (
+      select rv.id, rv.rating, rv.body, rv.display_name, rv.governorate_name, rv.created_at
+      from reviews rv
+      where rv.status = 'approved'
+        and exists (select 1 from order_items oi where oi.order_id = rv.order_id and oi.product_id = v_product_id)
+    )
+    select jsonb_build_object(
+      'count',   (select count(*) from r),
+      'average', (select round(avg(r.rating), 1) from r),
+      'reviews', (select coalesce(jsonb_agg(to_jsonb(x) - 'id' order by x.created_at desc, x.id desc), '[]'::jsonb)
+                  from (select * from r order by r.created_at desc, r.id desc limit v_limit) x))
+  );
+end $$;
+
+-- Skin quiz: active soap products ranked by matching tags (top 3).
+create or replace function quiz_recommend(tags text[])
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_tags text[] := (normalize_tags(coalesce(tags, '{}'::text[])))[1:20];
+begin
+  return (
+    select coalesce(jsonb_agg(to_jsonb(r) order by r.match_count desc, r.in_stock desc, r.is_bestseller desc, r.sort, r.id), '[]'::jsonb)
+    from (
+      select p.id, p.slug, p.name_ar, p.name_en, p.description_ar, p.tags, p.is_bestseller, p.sort,
+             (select count(*) from unnest(p.tags) t where t = any (v_tags))::integer as match_count,
+             (select min(v.price) from product_variants v where v.product_id = p.id and v.active) as from_price,
+             (select v.id from product_variants v where v.product_id = p.id and v.active and v.stock > 0
+              order by v.price, v.sort, v.id limit 1) as default_variant_id,
+             exists (select 1 from product_variants v where v.product_id = p.id and v.active and v.stock > 0) as in_stock,
+             (select i.path from product_images i where i.product_id = p.id order by i.sort, i.id limit 1) as image_path
+      from products p
+      join categories c on c.id = p.category_id
+      where c.key = 'soap' and product_is_visible(p.id)
+      order by match_count desc, in_stock desc, p.is_bestseller desc, p.sort, p.id
+      limit 3
+    ) r
+  );
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Staff / owner
+-- ---------------------------------------------------------------------
+create or replace function update_order_status(order_id uuid, new_status text, note text default null,
+                                               restock boolean default false)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_order_id uuid    := order_id;
+  v_status   text    := new_status;
+  v_note     text    := nullif(btrim(coalesce(note, '')), '');
+  v_restock  boolean := coalesce(restock, false);
+  v_order    orders%rowtype;
+begin
+  if not is_staff() then raise exception 'NOT_AUTHORIZED'; end if;
+  if v_status is null or v_status not in (select unnest(enum_range(null::order_status))::text) then
+    raise exception 'INVALID_TRANSITION';
+  end if;
+  if char_length(coalesce(v_note, '')) > 1000 then raise exception 'TEXT_TOO_LONG'; end if;
+
+  v_order := _apply_status_change(v_order_id, v_status::order_status, v_note, v_restock, auth.uid(), false);
+  return jsonb_build_object('status', v_order.status, 'payment_status', v_order.payment_status);
+end $$;
+
+-- Owner only. paid = true confirms the CliQ transfer; false rejects the proof so the
+-- customer can upload again. Money confirmed for an order that is already cancelled/returned
+-- becomes refund_due. Every change is logged in order_status_history (payment-only row).
+create or replace function verify_payment(order_id uuid, paid boolean)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_order_id uuid    := order_id;
+  v_paid     boolean := paid;
+  v_order    orders%rowtype;
+  v_old_pay  payment_status;
+  v_new_pay  payment_status;
+begin
+  if not is_owner() then raise exception 'NOT_AUTHORIZED'; end if;
+  select * into v_order from orders o where o.id = v_order_id for update;
+  if not found then raise exception 'ORDER_NOT_FOUND'; end if;
+  if v_order.payment_method <> 'cliq' then raise exception 'INVALID_PAYMENT_METHOD'; end if;
+  v_old_pay := v_order.payment_status;
+
+  if coalesce(v_paid, false) then
+    if v_old_pay = 'paid' then raise exception 'ALREADY_PAID'; end if;
+    if v_old_pay not in ('awaiting_transfer', 'awaiting_verification') then
+      raise exception 'INVALID_TRANSITION';
+    end if;
+    v_new_pay := case when v_order.status in ('cancelled', 'returned') then 'refund_due' else 'paid' end;
+    update orders o
+    set payment_status = v_new_pay, paid_at = now(), payment_verified_by = auth.uid()
+    where o.id = v_order.id
+    returning * into v_order;
+  else
+    -- Can't un-verify once the parcel may already be with the courier.
+    if v_old_pay not in ('awaiting_verification', 'paid') or v_order.status not in ('new', 'confirmed') then
+      raise exception 'INVALID_TRANSITION';
+    end if;
+    v_new_pay := 'awaiting_transfer';
+    update orders o
+    set payment_status = v_new_pay, paid_at = null, payment_verified_by = auth.uid()
+    where o.id = v_order.id
+    returning * into v_order;
+  end if;
+
+  insert into order_status_history (order_id, from_status, to_status, changed_by, payment_from, payment_to)
+  values (v_order.id, v_order.status, v_order.status, auth.uid(), v_old_pay, v_new_pay);
+
+  return jsonb_build_object('payment_status', v_order.payment_status, 'paid_at', v_order.paid_at);
+end $$;
+
+-- Owner only: the refund owed on a cancelled/returned paid CliQ order has been sent back.
+create or replace function mark_refunded(order_id uuid, note text default null)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_order_id uuid := order_id;
+  v_note     text := nullif(btrim(coalesce(note, '')), '');
+  v_order    orders%rowtype;
+begin
+  if not is_owner() then raise exception 'NOT_AUTHORIZED'; end if;
+  if char_length(coalesce(v_note, '')) > 1000 then raise exception 'TEXT_TOO_LONG'; end if;
+  select * into v_order from orders o where o.id = v_order_id for update;
+  if not found then raise exception 'ORDER_NOT_FOUND'; end if;
+  if v_order.payment_status <> 'refund_due' then raise exception 'REFUND_NOT_DUE'; end if;
+
+  update orders o set payment_status = 'refunded' where o.id = v_order.id returning * into v_order;
+
+  insert into order_status_history (order_id, from_status, to_status, note, changed_by, payment_from, payment_to)
+  values (v_order.id, v_order.status, v_order.status, v_note, auth.uid(), 'refund_due', 'refunded');
+
+  return jsonb_build_object('payment_status', v_order.payment_status);
+end $$;
+
+-- Manual stock adjustment (staff and owner). change > 0 adds, < 0 removes. Always logged.
+create or replace function adjust_stock(variant_id bigint, change integer, note text default null)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_variant_id bigint  := variant_id;
+  v_change     integer := change;
+  v_note       text    := nullif(btrim(coalesce(note, '')), '');
+  v_stock      integer;
+begin
+  if not is_staff() then raise exception 'NOT_AUTHORIZED'; end if;
+  if v_change is null or v_change = 0 or abs(v_change) > 100000 then raise exception 'INVALID_QUANTITY'; end if;
+  if char_length(coalesce(v_note, '')) > 500 then raise exception 'TEXT_TOO_LONG'; end if;
+
+  select pv.stock into v_stock from product_variants pv where pv.id = v_variant_id for update;
+  if not found then raise exception 'VARIANT_NOT_FOUND'; end if;
+  if v_stock + v_change < 0 then raise exception 'INSUFFICIENT_STOCK'; end if;
+
+  perform _set_stock_context('manual', null, v_note);
+  update product_variants pv set stock = pv.stock + v_change where pv.id = v_variant_id
+  returning pv.stock into v_stock;
+  perform _set_stock_context(null, null, null);
+
+  return jsonb_build_object('variant_id', v_variant_id, 'stock', v_stock);
+end $$;
+
+-- Owner promotes an existing account (by email) to staff or owner.
+create or replace function add_staff(email text, role text)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_email text := lower(btrim(coalesce(email, '')));
+  v_role  text := role;
+  v_uid   uuid;
+begin
+  if not is_owner() then raise exception 'NOT_AUTHORIZED'; end if;
+  if v_role is null or v_role not in ('owner', 'staff') then raise exception 'INVALID_ROLE'; end if;
+  select u.id into v_uid from auth.users u where lower(u.email) = v_email;
+  if v_uid is null then raise exception 'USER_NOT_FOUND'; end if;
+  if v_uid = auth.uid() and v_role <> 'owner' then raise exception 'CANNOT_REMOVE_SELF'; end if;
+
+  insert into staff (user_id, role, active, created_by)
+  values (v_uid, v_role::staff_role, true, auth.uid())
+  on conflict (user_id) do update set role = excluded.role, active = true;
+
+  return jsonb_build_object('user_id', v_uid, 'role', v_role);
+end $$;
+
+create or replace function remove_staff(user_id uuid)
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_uid uuid := user_id;
+begin
+  if not is_owner() then raise exception 'NOT_AUTHORIZED'; end if;
+  if v_uid = auth.uid() then raise exception 'CANNOT_REMOVE_SELF'; end if;
+  delete from staff s where s.user_id = v_uid;
+  if not found then raise exception 'USER_NOT_FOUND'; end if;
+  return jsonb_build_object('user_id', v_uid);
+end $$;
+
+-- Owner: staff list with emails (auth.users is not readable from the client).
+create or replace function list_staff()
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_owner() then raise exception 'NOT_AUTHORIZED'; end if;
+  return (
+    select coalesce(jsonb_agg(jsonb_build_object(
+             'user_id', s.user_id, 'email', u.email, 'full_name', p.full_name,
+             'role', s.role, 'active', s.active, 'created_at', s.created_at)
+           order by s.role, s.created_at), '[]'::jsonb)
+    from staff s
+    join auth.users u on u.id = s.user_id
+    left join profiles p on p.id = s.user_id
+  );
+end $$;
+
+-- Owner: full settings row including CliQ details.
+create or replace function get_admin_settings()
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+begin
+  if not is_owner() then raise exception 'NOT_AUTHORIZED'; end if;
+  return (select to_jsonb(s) from settings s where s.id);
+end $$;
+
+-- Owner dashboard. Range = whole days in Asia/Amman, based on order created_at.
+-- Revenue = delivered orders' goods after discounts (total − delivery_fee); delivery fees reported separately.
+create or replace function dashboard_stats(date_from date, date_to date)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_date_from date := date_from;
+  v_date_to   date := date_to;
+  v_from      timestamptz;
+  v_to        timestamptz;
+  v_window    integer;
+begin
+  if not is_owner() then raise exception 'NOT_AUTHORIZED'; end if;
+  if v_date_from is null or v_date_to is null or v_date_to < v_date_from or v_date_to - v_date_from > 366 then
+    raise exception 'INVALID_DATE_RANGE';
+  end if;
+
+  v_from := v_date_from::timestamp at time zone 'Asia/Amman';
+  v_to   := (v_date_to + 1)::timestamp at time zone 'Asia/Amman';
+  select s.cliq_window_hours into v_window from settings s where s.id;
+
+  return (
+    with ord as (
+      select * from orders o where o.created_at >= v_from and o.created_at < v_to
+    ),
+    delivered as (
+      select * from ord where ord.status = 'delivered'
+    )
+    select jsonb_build_object(
+      'range', jsonb_build_object('from', v_date_from, 'to', v_date_to, 'timezone', 'Asia/Amman'),
+      'orders_total', (select count(*) from ord),
+      'orders_by_status', (
+        select jsonb_object_agg(st::text, (select count(*) from ord where ord.status = st))
+        from unnest(enum_range(null::order_status)) st),
+      'delivered_orders',    (select count(*) from delivered),
+      'revenue',             (select coalesce(sum(d.total - d.delivery_fee), 0) from delivered d),
+      'delivery_fees',       (select coalesce(sum(d.delivery_fee), 0) from delivered d),
+      'discounts',           (select coalesce(sum(d.bundle_discount + d.coupon_discount), 0) from delivered d),
+      'average_order_value', (select coalesce(round(avg(d.total - d.delivery_fee), 3), 0) from delivered d),
+      'top_products', (
+        select coalesce(jsonb_agg(to_jsonb(t) order by t.quantity desc, t.product_name_ar), '[]'::jsonb)
+        from (
+          select oi.product_id, max(oi.product_name_ar) as product_name_ar,
+                 sum(oi.quantity)::integer as quantity, sum(oi.line_total) as gross_sales
+          from order_items oi
+          join delivered d on d.id = oi.order_id
+          group by oi.product_id
+          order by sum(oi.quantity) desc, max(oi.product_name_ar)
+          limit 5
+        ) t),
+      'low_stock', (
+        select coalesce(jsonb_agg(to_jsonb(x) order by x.stock, x.product_name_ar), '[]'::jsonb)
+        from (
+          select pv.id as variant_id, p.id as product_id, p.name_ar as product_name_ar,
+                 pv.label as variant_label, pv.sku, pv.stock, pv.low_stock_threshold
+          from product_variants pv
+          join products p on p.id = pv.product_id
+          where pv.active and p.active and pv.stock <= pv.low_stock_threshold
+          order by pv.stock, p.name_ar
+          limit 50
+        ) x),
+      -- Outstanding refunds (not date-bound)
+      'refund_due_count',  (select count(*) from orders o where o.payment_status = 'refund_due'),
+      'refund_due_amount', (select coalesce(sum(o.total), 0) from orders o where o.payment_status = 'refund_due'),
+      'flagged_cliq_orders', (
+        select coalesce(jsonb_agg(to_jsonb(f) order by f.created_at), '[]'::jsonb)
+        from (
+          select o.id, o.order_number, o.customer_name, o.total, o.payment_status, o.status, o.created_at
+          from orders o
+          where o.payment_method = 'cliq'
+            and o.payment_status in ('awaiting_transfer', 'awaiting_verification')
+            and o.status not in ('cancelled', 'returned')
+            and o.created_at < now() - make_interval(hours => v_window)
+        ) f)
+    )
+  );
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Profile row for every new auth user (name/phone from sign-up metadata)
+-- ---------------------------------------------------------------------
+create or replace function handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into profiles (id, full_name, phone)
+  values (new.id,
+          -- invalid metadata is dropped (never block sign-up); the customer can fix it in the account page
+          case when is_valid_person_name(new.raw_user_meta_data ->> 'full_name')
+               then normalize_person_name(new.raw_user_meta_data ->> 'full_name') end,
+          normalize_phone(new.raw_user_meta_data ->> 'phone'))
+  on conflict (id) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- ---------------------------------------------------------------------
+-- Function privileges: revoke everything, then grant exactly the API.
+-- Internal helpers (_price_cart, _apply_status_change, _order_public_json, _normalize_cart_items,
+-- _set_stock_context, _can_transition, _lookup_order_by_number) and trigger functions stay callable by NO API role.
+-- ---------------------------------------------------------------------
+revoke execute on all functions in schema public from public, anon, authenticated;
+grant execute on all functions in schema public to service_role;
+
+-- Called inside RLS policies, generated columns and triggers that run as the API role.
+grant execute on function
+  is_staff(), is_owner(), product_is_visible(bigint),
+  western_digits(text), normalize_ar(text), product_search_text(text, text, text[]),
+  normalize_phone(text), slugify(text), normalize_tags(text[]),
+  normalize_person_name(text), is_valid_person_name(text)
+to anon, authenticated;
+
+-- Public RPCs (guests and customers)
+grant execute on function
+  calculate_cart(jsonb, integer, text, text),
+  place_order(jsonb),
+  get_order_by_token(uuid),
+  track_order(text, text),
+  attach_payment_proof(uuid, text, text),
+  cancel_own_order(text, text),
+  submit_review(uuid, integer, text),
+  quiz_recommend(text[]),
+  product_reviews(bigint, integer)
+to anon, authenticated;
+
+-- Signed-in only (each checks is_staff() / is_owner() / ownership inside)
+grant execute on function
+  cancel_my_order(uuid),
+  update_order_status(uuid, text, text, boolean),
+  verify_payment(uuid, boolean),
+  mark_refunded(uuid, text),
+  adjust_stock(bigint, integer, text),
+  add_staff(text, text),
+  remove_staff(uuid),
+  list_staff(),
+  get_admin_settings(),
+  dashboard_stats(date, date)
+to authenticated;
+
+
+===== FILE: supabase\02_rls.sql =====
+
+-- =====================================================================
+-- Shami Cosmetics — 02 row level security & privileges
+-- Run after 01_schema.sql.
+--
+-- Principles
+--   * RLS is enabled on every table. The browser is untrusted.
+--   * Orders, order items, history, stock movements and reviews are written ONLY by
+--     SECURITY DEFINER functions (03_functions.sql). Clients get no write privileges on them.
+--   * Column privileges hide non-public columns (settings CliQ details) and block direct
+--     stock edits (stock changes only through adjust_stock / order functions, always logged).
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- Helper functions (SECURITY DEFINER so policies can call them without recursion)
+-- ---------------------------------------------------------------------
+create or replace function is_staff()  -- true for active staff AND owners
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from staff s where s.user_id = auth.uid() and s.active);
+$$;
+
+create or replace function is_owner()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from staff s where s.user_id = auth.uid() and s.active and s.role = 'owner');
+$$;
+
+-- Public catalog visibility: product active, category active, at least one active variant.
+create or replace function product_is_visible(p_product_id bigint)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1
+    from products p
+    join categories c on c.id = p.category_id
+    where p.id = p_product_id and p.active and c.active
+      and exists (select 1 from product_variants v where v.product_id = p.id and v.active)
+  );
+$$;
+
+-- ---------------------------------------------------------------------
+-- Enable RLS everywhere
+-- ---------------------------------------------------------------------
+alter table settings             enable row level security;
+alter table governorates         enable row level security;
+alter table categories           enable row level security;
+alter table products             enable row level security;
+alter table product_images       enable row level security;
+alter table product_variants     enable row level security;
+alter table offers               enable row level security;
+alter table coupons              enable row level security;
+alter table profiles             enable row level security;
+alter table addresses            enable row level security;
+alter table staff                enable row level security;
+alter table orders               enable row level security;
+alter table order_items          enable row level security;
+alter table order_status_history enable row level security;
+alter table order_notes          enable row level security;
+alter table stock_movements      enable row level security;
+alter table reviews              enable row level security;
+alter table quiz_questions       enable row level security;
+alter table quiz_options         enable row level security;
+alter table order_lookup_failures enable row level security;  -- no policies: functions only
+
+-- (TRUNCATE ignores RLS — the privileges section at the end grants it to no API role.)
+
+-- ---------------------------------------------------------------------
+-- settings — public columns only; CliQ alias/account name are NOT readable by clients
+-- (they are returned by get_order_by_token / track_order for unpaid CliQ orders, and
+--  to the owner by get_admin_settings()).
+-- ---------------------------------------------------------------------
+
+create policy "settings: public read" on settings
+  for select to anon, authenticated using (true);
+create policy "settings: owner update" on settings
+  for update to authenticated using (is_owner()) with check (is_owner());
+
+-- ---------------------------------------------------------------------
+-- governorates — public reads active ones; owner edits fee/active/sort
+-- ---------------------------------------------------------------------
+
+create policy "governorates: public read active" on governorates
+  for select to anon, authenticated using (active or is_staff());
+create policy "governorates: owner update" on governorates
+  for update to authenticated using (is_owner()) with check (is_owner());
+
+-- ---------------------------------------------------------------------
+-- Catalog — public reads active data; staff read everything; only owner writes
+-- ---------------------------------------------------------------------
+create policy "categories: public read active" on categories
+  for select to anon, authenticated using (active or is_staff());
+create policy "categories: owner write" on categories
+  for all to authenticated using (is_owner()) with check (is_owner());
+
+create policy "products: public read visible" on products
+  for select to anon, authenticated using (product_is_visible(id) or is_staff());
+create policy "products: owner write" on products
+  for all to authenticated using (is_owner()) with check (is_owner());
+
+create policy "product_images: public read visible" on product_images
+  for select to anon, authenticated using (product_is_visible(product_id) or is_staff());
+create policy "product_images: owner write" on product_images
+  for all to authenticated using (is_owner()) with check (is_owner());
+
+-- stock is not client-updatable (column privileges at the end; adjust_stock / order functions only).
+
+create policy "product_variants: public read active" on product_variants
+  for select to anon, authenticated using ((active and product_is_visible(product_id)) or is_staff());
+create policy "product_variants: owner write" on product_variants
+  for all to authenticated using (is_owner()) with check (is_owner());
+
+-- ---------------------------------------------------------------------
+-- Offers — public reads currently running active offers; coupons are owner-only
+-- ---------------------------------------------------------------------
+create policy "offers: public read running" on offers
+  for select to anon, authenticated
+  using ((active and now() >= starts_at and now() < ends_at) or is_staff());
+create policy "offers: owner write" on offers
+  for all to authenticated using (is_owner()) with check (is_owner());
+
+create policy "coupons: owner only" on coupons
+  for all to authenticated using (is_owner()) with check (is_owner());
+
+-- ---------------------------------------------------------------------
+-- Customers
+-- ---------------------------------------------------------------------
+
+create policy "profiles: read own" on profiles
+  for select to authenticated using (id = auth.uid() or is_owner());
+create policy "profiles: insert own" on profiles
+  for insert to authenticated with check (id = auth.uid());
+create policy "profiles: update own" on profiles
+  for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+
+create policy "addresses: own rows" on addresses
+  for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- ---------------------------------------------------------------------
+-- Staff — users read their own row (admin pages check role on load); owner reads all.
+-- Writes only via add_staff / remove_staff.
+-- ---------------------------------------------------------------------
+
+create policy "staff: read own or owner" on staff
+  for select to authenticated using (user_id = auth.uid() or is_owner());
+
+-- ---------------------------------------------------------------------
+-- Orders — customers read their own; staff read all; writes via functions only
+-- ---------------------------------------------------------------------
+
+create policy "orders: read own or staff" on orders
+  for select to authenticated using (user_id = auth.uid() or is_staff());
+
+create policy "order_items: read own or staff" on order_items
+  for select to authenticated
+  using (is_staff() or exists (select 1 from orders o where o.id = order_id and o.user_id = auth.uid()));
+
+-- History notes can be internal: staff only. Customers get a sanitized timeline from
+-- get_order_by_token / track_order.
+create policy "order_status_history: staff read" on order_status_history
+  for select to authenticated using (is_staff());
+
+create policy "order_notes: staff read" on order_notes
+  for select to authenticated using (is_staff());
+create policy "order_notes: staff add" on order_notes
+  for insert to authenticated with check (is_staff() and created_by = auth.uid());
+create policy "order_notes: author or owner delete" on order_notes
+  for delete to authenticated using (is_staff() and (created_by = auth.uid() or is_owner()));
+
+create policy "stock_movements: staff read" on stock_movements
+  for select to authenticated using (is_staff());
+
+-- ---------------------------------------------------------------------
+-- Reviews — public reads approved; staff moderate (status / featured); owner deletes.
+-- Inserted only through submit_review().
+-- ---------------------------------------------------------------------
+
+create policy "reviews: public read approved" on reviews
+  for select to anon, authenticated using (status = 'approved' or is_staff());
+create policy "reviews: staff moderate" on reviews
+  for update to authenticated using (is_staff()) with check (is_staff());
+create policy "reviews: owner delete" on reviews
+  for delete to authenticated using (is_owner());
+
+-- ---------------------------------------------------------------------
+-- Quiz — public reads active questions and their options; owner edits
+-- ---------------------------------------------------------------------
+create policy "quiz_questions: public read active" on quiz_questions
+  for select to anon, authenticated using (active or is_staff());
+create policy "quiz_questions: owner write" on quiz_questions
+  for all to authenticated using (is_owner()) with check (is_owner());
+
+create policy "quiz_options: public read active" on quiz_options
+  for select to anon, authenticated
+  using (is_staff() or exists (select 1 from quiz_questions q where q.id = question_id and q.active));
+create policy "quiz_options: owner write" on quiz_options
+  for all to authenticated using (is_owner()) with check (is_owner());
+
+-- ---------------------------------------------------------------------
+-- Table privileges — least privilege. Privileges decide WHICH operations a role may attempt;
+-- RLS policies above decide WHICH ROWS. Both are required.
+-- Starts from zero so the result is the same whether or not the project auto-granted anything.
+-- ---------------------------------------------------------------------
+grant usage on schema public to anon, authenticated, service_role;
+
+revoke all on all tables    in schema public from anon, authenticated;
+revoke all on all sequences in schema public from anon, authenticated;
+
+-- service_role is server-side only (never in the browser); it bypasses RLS anyway.
+grant all on all tables    in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+
+-- Public catalog: guests and signed-in users (RLS: active / visible / approved rows only)
+grant select on governorates, categories, products, product_images, product_variants,
+                offers, reviews, quiz_questions, quiz_options, catalog_products
+  to anon, authenticated;
+-- settings: public columns only. CliQ alias/account name are never readable by clients
+-- (returned by get_order_by_token / track_order for unpaid CliQ orders; owner uses get_admin_settings()).
+grant select (id, store_whatsapp, top_bar_messages, homepage_stats, return_policy_ar,
+              social_links, store_open, free_delivery_threshold, cliq_window_hours, updated_at)
+  on settings to anon, authenticated;
+
+-- Owner catalog/settings management (RLS: is_owner())
+grant update (store_whatsapp, cliq_alias, cliq_account_name, cliq_window_hours, free_delivery_threshold,
+              top_bar_messages, homepage_stats, return_policy_ar, social_links, store_open)
+  on settings to authenticated;
+grant update (delivery_fee, active, sort) on governorates to authenticated;
+grant insert, update, delete on categories, products, product_images, offers,
+                                quiz_questions, quiz_options to authenticated;
+grant select, insert, update, delete on coupons to authenticated;
+grant insert, delete on product_variants to authenticated;
+-- never stock: stock changes only via adjust_stock / order functions (always logged)
+grant update (label, sku, price, compare_at_price, low_stock_threshold, active, sort)
+  on product_variants to authenticated;
+
+-- Customers (RLS: own rows)
+grant select on profiles to authenticated;
+grant insert (id, full_name, phone) on profiles to authenticated;
+grant update (full_name, phone) on profiles to authenticated;
+grant select, insert, update, delete on addresses to authenticated;
+-- orders are read-only for everyone: they are created only by place_order
+grant select on orders, order_items to authenticated;
+
+-- Staff / owner (RLS: is_staff() / is_owner())
+grant select on staff, order_status_history, stock_movements to authenticated;
+grant select, delete on order_notes to authenticated;
+grant insert (order_id, body) on order_notes to authenticated;
+grant update (status, featured) on reviews to authenticated;
+grant delete on reviews to authenticated;
+
+-- Identity sequences of tables the owner/staff insert into directly
+do $$
+declare t text;
+begin
+  foreach t in array array['categories', 'products', 'product_images', 'product_variants', 'offers',
+                           'coupons', 'quiz_questions', 'quiz_options', 'order_notes'] loop
+    execute format('grant usage on sequence %s to authenticated', pg_get_serial_sequence('public.' || t, 'id'));
+  end loop;
+end $$;
+
+
+===== FILE: supabase\02b_grants.sql =====
+
+-- =====================================================================
+-- Shami Cosmetics — 02b grants (standalone, idempotent)
+--
+-- Resets ALL privileges of the API roles (anon, authenticated) on our objects to exactly
+-- what the RLS policies need, whatever state the project was in. Safe to re-run any time.
+--
+-- * Existing install (01–05 already run): run this file once.
+-- * Fresh install: NOT needed — the same statements are at the end of 02, 03 and 04.
+--   (Keep them identical; the "Grants" block in TESTS.md fails if they drift.)
+-- Requires 01–04 to have been run (it references their tables and functions).
+-- =====================================================================
+
+-- Future objects are NOT auto-granted to the API roles.
+alter default privileges in schema public revoke all on tables    from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke all on functions from anon, authenticated;
+alter default privileges revoke execute on functions from public;
+
+-- ---------------------------------------------------------------------
+-- Table privileges — least privilege. Privileges decide WHICH operations a role may attempt;
+-- RLS policies above decide WHICH ROWS. Both are required.
+-- Starts from zero so the result is the same whether or not the project auto-granted anything.
+-- ---------------------------------------------------------------------
+grant usage on schema public to anon, authenticated, service_role;
+
+revoke all on all tables    in schema public from anon, authenticated;
+revoke all on all sequences in schema public from anon, authenticated;
+
+-- service_role is server-side only (never in the browser); it bypasses RLS anyway.
+grant all on all tables    in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+
+-- Public catalog: guests and signed-in users (RLS: active / visible / approved rows only)
+grant select on governorates, categories, products, product_images, product_variants,
+                offers, reviews, quiz_questions, quiz_options, catalog_products
+  to anon, authenticated;
+-- settings: public columns only. CliQ alias/account name are never readable by clients
+-- (returned by get_order_by_token / track_order for unpaid CliQ orders; owner uses get_admin_settings()).
+grant select (id, store_whatsapp, top_bar_messages, homepage_stats, return_policy_ar,
+              social_links, store_open, free_delivery_threshold, cliq_window_hours, updated_at)
+  on settings to anon, authenticated;
+
+-- Owner catalog/settings management (RLS: is_owner())
+grant update (store_whatsapp, cliq_alias, cliq_account_name, cliq_window_hours, free_delivery_threshold,
+              top_bar_messages, homepage_stats, return_policy_ar, social_links, store_open)
+  on settings to authenticated;
+grant update (delivery_fee, active, sort) on governorates to authenticated;
+grant insert, update, delete on categories, products, product_images, offers,
+                                quiz_questions, quiz_options to authenticated;
+grant select, insert, update, delete on coupons to authenticated;
+grant insert, delete on product_variants to authenticated;
+-- never stock: stock changes only via adjust_stock / order functions (always logged)
+grant update (label, sku, price, compare_at_price, low_stock_threshold, active, sort)
+  on product_variants to authenticated;
+
+-- Customers (RLS: own rows)
+grant select on profiles to authenticated;
+grant insert (id, full_name, phone) on profiles to authenticated;
+grant update (full_name, phone) on profiles to authenticated;
+grant select, insert, update, delete on addresses to authenticated;
+-- orders are read-only for everyone: they are created only by place_order
+grant select on orders, order_items to authenticated;
+
+-- Staff / owner (RLS: is_staff() / is_owner())
+grant select on staff, order_status_history, stock_movements to authenticated;
+grant select, delete on order_notes to authenticated;
+grant insert (order_id, body) on order_notes to authenticated;
+grant update (status, featured) on reviews to authenticated;
+grant delete on reviews to authenticated;
+
+-- Identity sequences of tables the owner/staff insert into directly
+do $$
+declare t text;
+begin
+  foreach t in array array['categories', 'products', 'product_images', 'product_variants', 'offers',
+                           'coupons', 'quiz_questions', 'quiz_options', 'order_notes'] loop
+    execute format('grant usage on sequence %s to authenticated', pg_get_serial_sequence('public.' || t, 'id'));
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Function privileges: revoke everything, then grant exactly the API.
+-- Internal helpers (_price_cart, _apply_status_change, _order_public_json, _normalize_cart_items,
+-- _set_stock_context, _can_transition, _lookup_order_by_number) and trigger functions stay callable by NO API role.
+-- ---------------------------------------------------------------------
+revoke execute on all functions in schema public from public, anon, authenticated;
+grant execute on all functions in schema public to service_role;
+
+-- Called inside RLS policies, generated columns and triggers that run as the API role.
+grant execute on function
+  is_staff(), is_owner(), product_is_visible(bigint),
+  western_digits(text), normalize_ar(text), product_search_text(text, text, text[]),
+  normalize_phone(text), slugify(text), normalize_tags(text[]),
+  normalize_person_name(text), is_valid_person_name(text)
+to anon, authenticated;
+
+-- Public RPCs (guests and customers)
+grant execute on function
+  calculate_cart(jsonb, integer, text, text),
+  place_order(jsonb),
+  get_order_by_token(uuid),
+  track_order(text, text),
+  attach_payment_proof(uuid, text, text),
+  cancel_own_order(text, text),
+  submit_review(uuid, integer, text),
+  quiz_recommend(text[]),
+  product_reviews(bigint, integer)
+to anon, authenticated;
+
+-- Signed-in only (each checks is_staff() / is_owner() / ownership inside)
+grant execute on function
+  cancel_my_order(uuid),
+  update_order_status(uuid, text, text, boolean),
+  verify_payment(uuid, boolean),
+  mark_refunded(uuid, text),
+  adjust_stock(bigint, integer, text),
+  add_staff(text, text),
+  remove_staff(uuid),
+  list_staff(),
+  get_admin_settings(),
+  dashboard_stats(date, date)
+to authenticated;
+
+-- From 04_storage.sql
+grant execute on function can_upload_payment_proof(text) to anon, authenticated, service_role;

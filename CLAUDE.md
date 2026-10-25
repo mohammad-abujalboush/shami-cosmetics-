@@ -30,7 +30,7 @@ Text & copy
   a) Prefer neutral noun / verbal-noun forms: "إضافة إلى السلة", "إتمام الطلب", "تتبع الطلب", "بدء الاختبار", "يرجى إدخال رقم الهاتف".
   b) Only where a verb addressed to the customer is unavoidable, use the standard generic masculine form (أدخل، اختر، تسوق) — e.g. "تسوق الآن" only if no noun form reads naturally.
   c) No feminine-only phrasing anywhere (تسوقي، أدخلي، عميلة، عزيزتي). Use "العميل" / "عملاؤنا" or rephrase.
-  demo.html is the visual reference only; its feminine copy is not to be reused.
+  /reference/demo.html is the visual reference only; its feminine copy is not to be reused.
 - Never show raw browser or Supabase English errors. Use custom validation (novalidate on forms) with Arabic messages. RPC functions return error CODES (e.g. OUT_OF_STOCK, COUPON_EXPIRED, RATE_LIMITED), and the frontend maps each code to an Arabic message in strings.ar.js.
 - Empty states, loading text, toasts, confirmations, print slips, email templates, and WhatsApp templates are all in Arabic.
 
@@ -46,7 +46,7 @@ SEO
 - Arabic <title>, meta description, and Open Graph tags on every page, og:locale = ar_JO.
 
 General
-- Design system = the existing demo.html (colors, spacing, components); reuse its CSS variables exactly.
+- Design system = /reference/demo.html (colors, spacing, components); reuse its CSS variables exactly. It is a reference only, not a page of the site.
 - Shared CSS in /assets/css, shared JS in /assets/js. Header/footer injected by /assets/js/layout.js.
 - Every data view needs loading, empty, and error states in Arabic. No placeholder data.
 - Mobile-first, accessible (Arabic labels on every input, visible focus, prefers-reduced-motion respected).

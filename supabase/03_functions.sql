@@ -709,6 +709,30 @@ begin
   return jsonb_build_object('status', 'pending');
 end $$;
 
+-- Approved reviews for a product (reviews belong to orders, which guests can't read).
+-- Returns { count, average, reviews: [{ rating, body, display_name, governorate_name, created_at }] }.
+create or replace function product_reviews(product_id bigint, max_rows integer default 10)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  v_product_id bigint  := product_id;
+  v_limit      integer := least(greatest(coalesce(max_rows, 10), 1), 50);
+begin
+  return (
+    with r as (
+      select rv.id, rv.rating, rv.body, rv.display_name, rv.governorate_name, rv.created_at
+      from reviews rv
+      where rv.status = 'approved'
+        and exists (select 1 from order_items oi where oi.order_id = rv.order_id and oi.product_id = v_product_id)
+    )
+    select jsonb_build_object(
+      'count',   (select count(*) from r),
+      'average', (select round(avg(r.rating), 1) from r),
+      'reviews', (select coalesce(jsonb_agg(to_jsonb(x) - 'id' order by x.created_at desc, x.id desc), '[]'::jsonb)
+                  from (select * from r order by r.created_at desc, r.id desc limit v_limit) x))
+  );
+end $$;
+
 -- Skin quiz: active soap products ranked by matching tags (top 3).
 create or replace function quiz_recommend(tags text[])
 returns jsonb language plpgsql stable security definer set search_path = public as $$
@@ -1037,7 +1061,8 @@ grant execute on function
   attach_payment_proof(uuid, text, text),
   cancel_own_order(text, text),
   submit_review(uuid, integer, text),
-  quiz_recommend(text[])
+  quiz_recommend(text[]),
+  product_reviews(bigint, integer)
 to anon, authenticated;
 
 -- Signed-in only (each checks is_staff() / is_owner() / ownership inside)

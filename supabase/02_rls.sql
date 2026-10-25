@@ -208,7 +208,7 @@ grant all on all sequences in schema public to service_role;
 
 -- Public catalog: guests and signed-in users (RLS: active / visible / approved rows only)
 grant select on governorates, categories, products, product_images, product_variants,
-                offers, reviews, quiz_questions, quiz_options
+                offers, reviews, quiz_questions, quiz_options, catalog_products
   to anon, authenticated;
 -- settings: public columns only. CliQ alias/account name are never readable by clients
 -- (returned by get_order_by_token / track_order for unpaid CliQ orders; owner uses get_admin_settings()).

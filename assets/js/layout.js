@@ -2,7 +2,8 @@
 // account pages. Pages provide <main id="main"> and may set <body data-page="home|shop|quiz|track|account|…">.
 // Admin pages use their own sidebar layout and do not load this file.
 import { STORAGE_KEYS, SITE_DATA_TTL_MS } from './config.js';
-import { t, html, raw, formatPhone, ltr, getParam, installDigitNormalizer } from './utils.js';
+import { t, html, raw, formatPhone, ltr, getParam, installDigitNormalizer, applyStrings } from './utils.js';
+import './cart.js';  // cart drawer on every store page
 
 // Loaded lazily so the header/footer still render if the Supabase CDN is unreachable.
 const supabaseModule = import('./supabase.js').catch((err) => {
@@ -39,7 +40,8 @@ function writeSiteCache(data) {
 
 let siteDataPromise = null;
 
-// { settings: { store_whatsapp, top_bar_messages, social_links } | null, categories: [{ slug, name_ar }] }
+// { settings: { public settings columns } | null, categories: [{ id, key, slug, name_ar, description_ar }] }
+// Pages reuse this (one cached request per session) instead of querying settings/categories again.
 export function getSiteData() {
   if (!siteDataPromise) siteDataPromise = loadSiteData();
   return siteDataPromise;
@@ -52,8 +54,10 @@ async function loadSiteData() {
   if (!supa?.sb) return { settings: null, categories: [] };
 
   const [settings, categories] = await Promise.allSettled([
-    supa.run(supa.sb.from('settings').select('store_whatsapp, top_bar_messages, social_links').limit(1).maybeSingle()),
-    supa.run(supa.sb.from('categories').select('slug, name_ar').eq('active', true).order('sort')),
+    supa.run(supa.sb.from('settings')
+      .select('store_whatsapp, top_bar_messages, social_links, homepage_stats, store_open, free_delivery_threshold, return_policy_ar')
+      .limit(1).maybeSingle()),
+    supa.run(supa.sb.from('categories').select('id, key, slug, name_ar, description_ar').eq('active', true).order('sort')),
   ]);
   const data = {
     settings: settings.status === 'fulfilled' ? settings.value : null,
@@ -281,6 +285,7 @@ function mount() {
   if (main && !main.hasAttribute('tabindex')) main.setAttribute('tabindex', '-1');
   document.body.insertAdjacentHTML('afterbegin', headerMarkup().toString());
   document.body.insertAdjacentHTML('beforeend', footerMarkup().toString());
+  applyStrings();
 
   installDigitNormalizer();
   markActiveNav();

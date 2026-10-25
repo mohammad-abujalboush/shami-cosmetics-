@@ -17,6 +17,19 @@ export function t(path, vars) {
   return value.replace(/\{(\w+)\}/g, (match, key) => (key in vars ? String(vars[key]) : match));
 }
 
+// Fills static page text from strings.ar.js so HTML files carry keys, not copy:
+//   <h1 data-t="shop.titleAll"></h1>
+//   <input data-t-attr="placeholder:shop.searchPlaceholder;aria-label:shop.searchLabel">
+export function applyStrings(root = document) {
+  root.querySelectorAll('[data-t]').forEach((el) => { el.textContent = t(el.dataset.t); });
+  root.querySelectorAll('[data-t-attr]').forEach((el) => {
+    el.dataset.tAttr.split(';').forEach((pair) => {
+      const [attr, key] = pair.split(':').map((s) => s.trim());
+      if (attr && key) el.setAttribute(attr, t(key));
+    });
+  });
+}
+
 /* ---------- Digits ---------- */
 
 // Arabic-Indic (٠-٩, U+0660–0669) and Persian (۰-۹, U+06F0–06F9) → 0-9.

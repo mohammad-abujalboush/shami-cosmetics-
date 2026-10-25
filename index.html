@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shami Cosmetics — عناية فاخرة تبدأ من التفاصيل</title>
+<meta name="description" content="براند أردني للصابون التركي الطبي الأصلي وعطور TWINS الفاخرة. توصيل لجميع محافظات الأردن والدفع عند الاستلام.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Shami Cosmetics">
+<meta property="og:locale" content="ar_JO">
+<meta property="og:title" content="Shami Cosmetics — عناية فاخرة تبدأ من التفاصيل">
+<meta property="og:description" content="براند أردني للصابون التركي الطبي الأصلي وعطور TWINS الفاخرة.">
+<meta name="theme-color" content="#FBF8F2">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@1,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/base.css">
+<link rel="stylesheet" href="/assets/css/home.css">
+<script type="module" src="/assets/js/pages/home.js"></script>
+</head>
+<body data-page="home">
+<noscript><p class="alert warning">يتطلب هذا الموقع تفعيل JavaScript في المتصفح.</p></noscript>
+
+<main id="main">
+  <div class="wrap hero">
+    <div class="hero-grid">
+      <div>
+        <p class="eyebrow" data-t="home.heroEyebrow"></p>
+        <h1 class="headline"><span data-t="home.heroTitleStart"></span> <span class="gold" data-t="home.heroTitleGold"></span></h1>
+        <p class="lede" data-t="home.heroLede"></p>
+        <div class="cta-row">
+          <a class="btn primary" href="/shop.html" data-t="home.heroCta"></a>
+          <a class="btn ghost" href="#categories" data-t="home.heroCta2"></a>
+        </div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="glow"></div>
+        <div class="sparkle s1"></div><div class="sparkle s2"></div><div class="sparkle s3"></div><div class="sparkle s4"></div>
+        <svg viewBox="0 0 300 300" fill="none" focusable="false">
+          <ellipse cx="150" cy="255" rx="90" ry="14" fill="#B8923F" opacity="0.12"/>
+          <rect x="60" y="150" width="90" height="80" rx="16" fill="#EFE2C0" stroke="#B8923F" stroke-width="2"/>
+          <line x1="60" y1="178" x2="150" y2="178" stroke="#B8923F" stroke-width="1.4" opacity="0.6"/>
+          <line x1="60" y1="202" x2="150" y2="202" stroke="#B8923F" stroke-width="1.4" opacity="0.6"/>
+          <rect x="170" y="90" width="60" height="120" rx="12" fill="#FBF8F2" stroke="#B8923F" stroke-width="2"/>
+          <rect x="188" y="66" width="24" height="30" rx="5" fill="#B8923F"/>
+          <rect x="182" y="56" width="36" height="14" rx="6" fill="#1C1712"/>
+          <circle cx="200" cy="150" r="16" fill="#D9B96C" opacity="0.5"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <section class="section" id="categories" aria-labelledby="cats-title" data-section="categories" hidden>
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker" data-t="home.categoriesKicker"></p>
+        <h2 id="cats-title" data-t="home.categoriesTitle"></h2>
+        <p data-t="home.categoriesText"></p>
+      </div>
+      <div class="cat-grid" data-slot="categories"></div>
+    </div>
+  </section>
+
+  <section class="section" id="offer" aria-labelledby="offer-kicker" data-section="offer" hidden>
+    <h2 class="sr-only" id="offer-kicker" data-t="home.offerKicker"></h2>
+    <div class="wrap" data-slot="offers"></div>
+  </section>
+
+  <hr class="rule">
+
+  <section class="section" aria-labelledby="best-title" data-section="bestsellers">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker" data-t="home.bestsellersKicker"></p>
+        <h2 id="best-title" data-t="home.bestsellersTitle"></h2>
+      </div>
+      <div class="prod-grid" data-slot="bestsellers"></div>
+      <div class="section-foot"><a class="btn ghost" href="/shop.html?sort=best" data-t="home.viewAll"></a></div>
+    </div>
+  </section>
+
+  <section class="section sm">
+    <div class="wrap">
+      <div class="quiz-banner reveal">
+        <div class="quiz-text">
+          <p class="kicker" data-t="home.quizKicker"></p>
+          <h2 data-t="home.quizTitle"></h2>
+          <p data-t="home.quizText"></p>
+        </div>
+        <a class="btn dark lg" href="/quiz.html" data-t="home.quizCta"></a>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section class="section" id="perfumes" aria-labelledby="perf-title" data-section="perfumes">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker ltr" dir="ltr" data-t="home.perfumesKicker"></p>
+        <h2 id="perf-title" data-t="home.perfumesTitle"></h2>
+        <p data-t="home.perfumesText"></p>
+      </div>
+      <div class="chip-row home-filter" role="group" data-t-attr="aria-label:home.perfumesFilterLabel">
+        <button type="button" class="chip" data-gender="" aria-pressed="true" data-t="home.filterAll"></button>
+        <button type="button" class="chip" data-gender="men" aria-pressed="false" data-t="catalog.gender.men"></button>
+        <button type="button" class="chip" data-gender="women" aria-pressed="false" data-t="catalog.gender.women"></button>
+      </div>
+      <div class="prod-grid" data-slot="perfumes" aria-live="polite"></div>
+      <div class="section-foot"><a class="btn ghost" data-slot="perfumes-link" href="/shop.html" data-t="home.viewAllPerfumes"></a></div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="stats-title" data-section="stats" hidden>
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker" data-t="home.statsKicker"></p>
+        <h2 id="stats-title" data-t="home.statsTitle"></h2>
+      </div>
+      <div class="trust-grid" data-slot="stats"></div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="reviews-title" data-section="reviews" hidden>
+    <div class="wrap">
+      <div class="section-head reveal">
+        <p class="kicker" data-t="home.reviewsKicker"></p>
+        <h2 id="reviews-title" data-t="home.reviewsTitle"></h2>
+      </div>
+      <div data-slot="reviews"></div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
