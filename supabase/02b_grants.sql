@@ -118,8 +118,19 @@ grant execute on function
   remove_staff(uuid),
   list_staff(),
   get_admin_settings(),
-  dashboard_stats(date, date)
+  dashboard_stats(date, date),
+  staff_overview()
 to authenticated;
 
 -- From 04_storage.sql
 grant execute on function can_upload_payment_proof(text) to anon, authenticated, service_role;
+
+-- Realtime for new-order notifications (RLS still applies to what each subscriber receives).
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables
+                     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'orders') then
+    alter publication supabase_realtime add table public.orders;
+  end if;
+end $$;

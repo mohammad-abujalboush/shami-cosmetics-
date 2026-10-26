@@ -988,7 +988,7 @@ declare
     'normalize_phone', 'slugify', 'normalize_tags', 'normalize_person_name', 'is_valid_person_name'];
   v_auth_fns text[] := v_anon_fns || array[
     'cancel_my_order', 'update_order_status', 'verify_payment', 'mark_refunded', 'adjust_stock',
-    'add_staff', 'remove_staff', 'list_staff', 'get_admin_settings', 'dashboard_stats'];
+    'add_staff', 'remove_staff', 'list_staff', 'get_admin_settings', 'dashboard_stats', 'staff_overview'];
   v_anon_read text[] := array[
     'settings', 'governorates', 'categories', 'products', 'product_images', 'product_variants',
     'offers', 'reviews', 'quiz_questions', 'quiz_options', 'catalog_products'];
@@ -1290,6 +1290,51 @@ begin
   perform test.assert((r->>'count')::int = 1 and (r->>'average')::numeric = 4, 'approved review counted, average 4');
   perform test.assert(r->'reviews'->0->>'body' = 'جيد جدًا' and not (r->'reviews'->0 ? 'id'), 'review returned without internal ids');
   perform test.assert((product_reviews(900002)->>'count')::int = 0, 'other products get no reviews from this order');
+end $$;
+rollback;
+```
+
+---
+
+## 17. Staff dashboard and Realtime (admin core)
+
+`staff_overview()` is for staff and owners (no revenue). Realtime must publish `orders` only, so every subscriber is filtered by the orders RLS policy.
+
+```sql
+begin;
+select test.fixture();
+
+select test.login(null);
+select test.expect_sqlstate($$select staff_overview()$$, '42501');
+
+select test.login('00000000-0000-0000-0000-00000000000c');  -- customer
+select test.expect_error($$select staff_overview()$$, 'NOT_AUTHORIZED');
+
+select test.login('00000000-0000-0000-0000-00000000000b');  -- staff
+do $$
+declare r jsonb;
+begin
+  r := staff_overview();
+  perform test.assert((r->>'new_count') ~ '^[0-9]+$' and jsonb_typeof(r->'flagged_cliq_orders') = 'array'
+                      and jsonb_typeof(r->'low_stock') = 'array', 'staff gets pending counts, flagged CliQ and low stock');
+  perform test.assert(not (r ? 'revenue'), 'staff overview has no revenue');
+end $$;
+
+select test.login('00000000-0000-0000-0000-00000000000a');  -- owner
+select test.assert((staff_overview()->>'cliq_window_hours')::int >= 1, 'owner can read the overview too');
+
+-- Realtime publishes the orders table and nothing sensitive besides
+reset role;
+do $$
+begin
+  perform test.assert(not exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+                      or exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime'
+                                 and schemaname = 'public' and tablename = 'orders'),
+                      'orders is in the supabase_realtime publication');
+  perform test.assert(not exists (select 1 from pg_publication_tables
+                                  where pubname = 'supabase_realtime' and schemaname = 'public'
+                                    and tablename in ('settings', 'coupons', 'staff', 'order_notes', 'profiles', 'addresses', 'order_status_history')),
+                      'no other private table is published to Realtime');
 end $$;
 rollback;
 ```

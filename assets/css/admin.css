@@ -242,3 +242,10 @@ body.admin{ background: var(--admin-bg); font-size:15px; line-height:1.7; }
   .admin-content{ padding:0; max-width:none; }
   body.admin{ background:#fff; }
 }
+
+/* ---------- Admin core additions ---------- */
+body.admin-pending{ visibility:hidden; }
+.live-dot{ width:10px; height:10px; border-radius:50%; background: var(--danger); flex-shrink:0; }
+.live-dot.is-on{ background: var(--success); }
+.link-inline{ color: var(--gold-deep); font-weight:700; text-decoration:underline; text-underline-offset:3px; }
+.data-table.wide{ min-width:820px; }
