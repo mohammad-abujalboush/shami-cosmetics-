@@ -23,6 +23,7 @@ function shell() {
     <div class="acc-head">
       <h1 data-hello></h1>
       <div class="acc-links">
+        <a class="btn ghost sm" href="/admin/" data-admin-link hidden>${t('account.adminPanel')}</a>
         <a class="btn ghost sm" href="/account/addresses.html">${t('account.addresses')}</a>
         <button type="button" class="btn ghost sm" data-logout>${t('account.logout')}</button>
       </div>
@@ -32,12 +33,25 @@ function shell() {
     </div>
     ${TABS.map((k) => html`<section role="tabpanel" id="panel-${k}" aria-labelledby="tab-${k}" data-panel="${k}" tabindex="0" hidden></section>`)}`.toString();
   root.querySelector('[data-logout]').addEventListener('click', logout);
+  revealAdminLink();
   root.querySelector('.tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) select(b.dataset.tab, true); });
   root.querySelector('.tabs').addEventListener('keydown', (e) => {
     const i = TABS.indexOf(tab);
     const dir = e.key === 'ArrowLeft' ? 1 : e.key === 'ArrowRight' ? -1 : 0;   // RTL: left arrow = next
     if (dir) { e.preventDefault(); select(TABS[(i + dir + TABS.length) % TABS.length], true); }
   });
+}
+
+// Shown only to active staff (owner or staff). Hidden by default; any failure leaves it hidden.
+// Real protection stays in RLS and the admin pages' own role check.
+async function revealAdminLink() {
+  try {
+    const staff = await run(sb.from('staff').select('role, active').eq('user_id', session.user.id).maybeSingle());
+    if (staff && staff.active === true && (staff.role === 'owner' || staff.role === 'staff')) {
+      const a = root.querySelector('[data-admin-link]');
+      if (a) a.hidden = false;
+    }
+  } catch (err) { /* not staff, or lookup failed: keep hidden */ }
 }
 
 function select(key, focus = false) {

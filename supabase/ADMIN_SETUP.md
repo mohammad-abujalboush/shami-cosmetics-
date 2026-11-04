@@ -4,6 +4,7 @@
 
 1. `upgrade_05_admin_core.sql` (adds `staff_overview()` and publishes `orders` to Realtime). Fresh installs get it from `03_functions.sql` + `02b_grants.sql`.
 2. `upgrade_06_admin_pages.sql` (staff names, staff activation, coupon stats, sales report).
+3. `upgrade_07_staff_profiles.sql` (profiles, forced password change, customers, activity log) + deploy the Edge Function: see `ADMIN_USERS_DEPLOY.md`.
 3. The tests listed in `supabase/TESTS_TODO.md`.
 
 ## Realtime (new-order notification + sound)

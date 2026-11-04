@@ -93,10 +93,48 @@ Test on a phone-width window (375 px) and a desktop window.
 
 **Quiz** · [ ] add question, add options with tags (suggested chips), reorder, delete; the public quiz follows.
 
-**Staff** · [ ] add an existing account by email (unknown email → Arabic message); change role; deactivate (confirmation) → that person is thrown out of the admin at once but their name stays in old histories; reactivate. You cannot deactivate yourself.
+**Staff** (see also section 5) · [ ] promote an existing account by email ("ترقية حساب موجود") (unknown email → Arabic message); change role; deactivate (confirmation) → that person is thrown out of the admin at once but their name stays in old histories; reactivate. You cannot deactivate yourself.
 
 **Settings** · [ ] store open/closed; WhatsApp number (07… or international); CliQ alias and account name must be filled together (CliQ appears in checkout only when both are set); top-bar messages; homepage stats with show flags (hidden ones disappear, none are invented); return policy; social links (https only); save → the storefront shows the changes after a reload.
 
 **Reports (owner)** · [ ] presets and custom range; daily table + bars, top products, governorates, payment-method split, refunds; **تصدير CSV** opens correctly in Excel with Arabic text.
 
 **Phone width** · [ ] every admin page at 375 px: no sideways scrolling of the page itself (wide tables scroll inside their frame); the sidebar opens from the menu button.
+
+---
+
+## 5. Staff & profile management, customers, activity log
+
+Needs `upgrade_07_staff_profiles.sql` run and the Edge Function `admin-users` deployed (`supabase/ADMIN_USERS_DEPLOY.md`).
+
+**My profile (/admin/profile.html, every staff member; sidebar → ملفي)**
+- [ ] Owner with no name: set the name → saved; invalid name / phone → Arabic errors; phone typed with Arabic digits is accepted; the name now shows in order histories.
+- [ ] Change email: wrong current password → Arabic error; right password → "تم إرسال رابط التأكيد"; the old email still logs in until the link is opened; after confirming, the new one logs in.
+- [ ] Change password: wrong current → error; mismatch / shorter than 8 / same as old → Arabic errors; success toast; log out and in with the new one.
+- [ ] Staff (not owner) can open the page and edit only their own data.
+
+**Create staff (owner, فريق العمل → إنشاء حساب موظف)**
+- [ ] A strong password is pre-filled; "توليد" makes a new one; under 10 characters is refused.
+- [ ] Save → dialog shows the password once, copy-password and copy-message work, the WhatsApp text has login link + email + password (neutral Arabic), "فتح واتساب" opens a chat; the dialog only closes with "تم" (Esc does nothing). Reopening the page never shows the password again.
+- [ ] Existing email → "يوجد حساب بهذا البريد…" and the form reopens with the same values; nothing half-created in Authentication → Users.
+- [ ] The new person logs in at /admin/login.html → is sent to ملفي with the forced-change notice, no sidebar; typing /admin/ or /admin/orders.html bounces back; wrong current (temporary) password refused; after the change they reach the dashboard.
+- [ ] While the change is pending, the SQL editor check `select is_staff()` run as that user is false (or: they see load errors if they bypass the redirect).
+- [ ] Role staff vs owner sidebar is right; the staff row shows "بانتظار تغيير كلمة المرور" until the first change.
+
+**Owner actions per member**
+- [ ] Edit name / phone / job title / notes (notes are not visible to that member).
+- [ ] Change role; demoting the only active owner is refused (Arabic message); you have no actions on your own row (only a link to ملفي).
+- [ ] Deactivate → they are thrown out at once; reactivate. Deactivating the last active owner is refused.
+- [ ] Reset password → new temporary password shown once + message "تمت إعادة تعيين…"; the old password no longer works; next login forces the change.
+- [ ] Staff user calling the function directly (console) gets NOT_AUTHORIZED.
+
+**Customers (/admin/customers.html)**
+- [ ] Owner and staff both open it; search by name (with/without hamza variants), phone (07…, Arabic digits), email.
+- [ ] Registered tab: orders count, total spent (cancelled/returned excluded), last order; detail shows orders (links work) and saved addresses.
+- [ ] Guests tab: grouped by phone, "عميل متكرر" badge for 2+ orders, detail lists orders and delivery addresses used.
+- [ ] Owner: "تعطيل الحساب" → confirm; that customer can no longer log in (Arabic "الحساب معطّل"); "تفعيل الحساب" restores it. Staff see no disable button. Staff accounts cannot be disabled here.
+
+**Activity log (/admin/activity.html, owner only; staff are redirected)**
+- [ ] Do each once, then find it: order status change, payment verification, manual stock adjustment, product price change, settings change, delivery fee change, coupon edit, staff role change, create staff, reset password, disable customer.
+- [ ] Filters: type, person, date range, text search (order number / product name / person); "عرض المزيد" pages through.
+- [ ] Customer-made cancellations show "العميل"; coupon usage (used_count) does not flood the log.

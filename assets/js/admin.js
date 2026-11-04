@@ -24,6 +24,9 @@ const ICONS = {
   delivery: I('<path d="M3 6h11v10H3V6Zm11 4h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.7"/><circle cx="17" cy="17.5" r="1.7"/>'),
   reports: I('<path d="M4 20h16M7 16v-5M12 16V6M17 16v-8"/>'),
   staff: I('<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6M16 5.5a3 3 0 0 1 0 5.5M18 14.3c1.8.7 3 2.5 3 5.2"/>'),
+  customers: I('<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5"/>'),
+  activity: I('<path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/>'),
+  profile: I('<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="12" cy="10" r="2.7"/><path d="M7 18c.8-2.2 2.6-3.4 5-3.4s4.2 1.2 5 3.4"/>'),
   settings: I('<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'),
 };
 
@@ -33,6 +36,7 @@ export const NAV = [
   { group: 'main', key: 'orders', href: '/admin/orders.html', icon: 'orders', badge: true },
   { group: 'main', key: 'stock', href: '/admin/stock.html', icon: 'stock' },
   { group: 'main', key: 'reviews', href: '/admin/reviews.html', icon: 'reviews' },
+  { group: 'main', key: 'customers', href: '/admin/customers.html', icon: 'customers' },
   { group: 'catalog', key: 'products', href: '/admin/products.html', icon: 'products', owner: true },
   { group: 'catalog', key: 'categories', href: '/admin/categories.html', icon: 'categories', owner: true },
   { group: 'catalog', key: 'offers', href: '/admin/offers.html', icon: 'offers', owner: true },
@@ -41,9 +45,11 @@ export const NAV = [
   { group: 'store', key: 'delivery', href: '/admin/delivery.html', icon: 'delivery', owner: true },
   { group: 'store', key: 'reports', href: '/admin/reports.html', icon: 'reports', owner: true },
   { group: 'store', key: 'staff', href: '/admin/staff.html', icon: 'staff', owner: true },
+  { group: 'store', key: 'activity', href: '/admin/activity.html', icon: 'activity', owner: true },
   { group: 'store', key: 'settings', href: '/admin/settings.html', icon: 'settings', owner: true },
+  { group: 'account', key: 'profile', href: '/admin/profile.html', icon: 'profile' },
 ].map((n) => ({ ready: true, ...n }));
-const NAV_GROUPS = ['main', 'catalog', 'store'];
+const NAV_GROUPS = ['main', 'catalog', 'store', 'account'];
 
 /* ---------- Shared helpers ---------- */
 
@@ -107,17 +113,29 @@ export async function initAdmin({ page, ownerOnly = false, shell = true } = {}) 
     return new Promise(() => {});
   }
 
+  // Temporary password (new or reset account): nothing else is reachable until it is replaced.
+  // Server side this is enforced too: is_staff() / is_owner() return false while the flag is set.
+  let forced = false;
+  try {
+    const flags = await run(sb.rpc('my_account_flags'));
+    forced = flags?.must_change_password === true;
+  } catch { /* RLS still protects; the page will simply show load errors */ }
+  if (forced && page !== 'profile') {
+    location.replace('/admin/profile.html?force=1');
+    return new Promise(() => {});
+  }
+
   let cliqWindow = 24;
   try {
     const s = await run(sb.from('settings').select('cliq_window_hours').limit(1).maybeSingle());
     if (s?.cliq_window_hours) cliqWindow = s.cliq_window_hours;
   } catch { /* default 24 */ }
 
-  ctx = { sb, session, role: staff.role, isOwner: staff.role === 'owner', userId: session.user.id, email: session.user.email, cliqWindow, page };
+  ctx = { sb, session, role: staff.role, isOwner: staff.role === 'owner', userId: session.user.id, email: session.user.email, cliqWindow, page, forced };
   applyStrings(document.getElementById('main'));
   if (shell) buildShell(ctx);
   document.body.classList.remove('admin-pending');
-  if (shell) {
+  if (shell && !forced) {
     startRealtime(ctx);
     refreshBadge();
     window.addEventListener('admin:orders-changed', refreshBadge);
@@ -127,7 +145,7 @@ export async function initAdmin({ page, ownerOnly = false, shell = true } = {}) 
 
 function buildShell(c) {
   const main = document.getElementById('main');
-  const links = NAV.filter((n) => n.ready && (!n.owner || c.isOwner));
+  const links = c.forced ? [] : NAV.filter((n) => n.ready && (!n.owner || c.isOwner));
   const shell = document.createElement('div');
   shell.className = 'admin-shell';
   shell.innerHTML = html`
@@ -138,8 +156,8 @@ function buildShell(c) {
         <nav class="admin-nav">
           ${links.filter((n) => n.group === g).map((n) => html`<a href="${n.href}" ${raw(n.key === c.page ? 'aria-current="page"' : '')}>${raw(ICONS[n.icon] || '')}<span>${t(`admin.nav.${n.key}`)}</span>${n.badge ? html`<span class="count" data-nav-badge hidden>0</span>` : ''}</a>`)}
         </nav>` : '')}
-      <div class="admin-nav-group">${t('admin.navShop')}</div>
-      <nav class="admin-nav"><a href="/" target="_blank" rel="noopener">${raw(ICONS.store)}<span>${t('meta.brand')}</span></a></nav>
+      ${c.forced ? '' : html`<div class="admin-nav-group">${t('admin.navShop')}</div>
+      <nav class="admin-nav"><a href="/" target="_blank" rel="noopener">${raw(ICONS.store)}<span>${t('meta.brand')}</span></a></nav>`}
       <div class="admin-sidebar-foot">
         <div class="who" dir="ltr">${c.email}</div>
         <div class="role">${t(c.isOwner ? 'admin.roleOwner' : 'admin.roleStaff')}</div>

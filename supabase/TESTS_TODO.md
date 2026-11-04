@@ -17,7 +17,7 @@ using the **current** TESTS.md. After a clean run, clear the list.
 11. **18**: Admin pages: staff names, activation, coupon stats, sales report (new; needs `upgrade_06_admin_pages.sql` first)
 12. **Step 99**: remove the test helpers
 
-Upgrades to run first (existing project, in order): `upgrade_04_cod_refund.sql`, `upgrade_05_admin_core.sql` (done 2026-10-26), `upgrade_06_admin_pages.sql` (pending). Fresh installs already contain all of them.
+Upgrades to run first (existing project, in order): `upgrade_04_cod_refund.sql`, `upgrade_05_admin_core.sql` (done 2026-10-26), `upgrade_06_admin_pages.sql` (pending), `upgrade_07_staff_profiles.sql` (pending, + Edge Function `admin-users`). Fresh installs already contain all of them.
 
 ## Log
 - 2026-09-27: 5, 6, 9, 12 failed on the live project, but that run used a stale TESTS.md (old `list_staff() = 3` check, old `expect_error` in 5). Rerun with the current file.
@@ -25,3 +25,5 @@ Upgrades to run first (existing project, in order): `upgrade_04_cod_refund.sql`,
 - 2026-10-25: rule changed: any paid order cancelled/returned → `refund_due` (incl. returned COD). Section 13 test C and the dashboard counts updated.
 - 2026-10-26: added `staff_overview()` + Realtime publication of `orders` (upgrade_05); section 12 function list and new section 17.
 - 2026-10-27: added `staff_names()`, `set_staff_active()`, `coupon_stats()`, `sales_report()` (upgrade_06); section 12 function list and new section 18.
+
+- 2026-11-04: added upgrade_07 (staff_details, account_flags, activity_log, my_account_flags, complete_password_change, owner_update_staff, set_staff_role, list_customers, customer_detail, activity_feed, service-role helpers). Section 12 (grants) function list, section 6 (staff restrictions) and section 18 need the new functions added; `is_staff()`/`is_owner()` now also return false while a password change is pending.

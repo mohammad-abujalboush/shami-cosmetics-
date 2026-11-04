@@ -1,6 +1,7 @@
 // Small form / validation helpers shared by the admin pages. Everything validates in Arabic
 // (forms use novalidate); numbers accept Arabic-Indic digits.
-import { t, html, raw, toWesternDigits, toast, errorMessage, setButtonLoading, confirmDialog } from './utils.js';
+import { t, html, raw, toWesternDigits, toast, errorMessage, setButtonLoading, confirmDialog, AppError, toAppError } from './utils.js';
+import { requireClient } from './supabase.js';
 
 // → null (blank), NaN (not a number), or the Number. Accepts "٣٫٥", "3,5", "3.5".
 export function parseNum(value) {
@@ -105,4 +106,39 @@ export function parseSignedInt(value) {
   const neg = s.startsWith('-');
   const n = parseIntStrict(s.replace(/^[-+]/, ''));
   return n === null || Number.isNaN(n) ? n : (neg ? -n : n);
+}
+
+
+/* ---------- Edge Function: admin-users (owner-only account actions) ---------- */
+
+// Throws an AppError with the function's error code (mapped to Arabic by errorMessage()).
+export async function callAdminUsers(action, payload = {}) {
+  let res;
+  try {
+    res = await requireClient().functions.invoke('admin-users', { body: { action, ...payload } });
+  } catch (err) {
+    throw toAppError(err);
+  }
+  if (res.error) {
+    const status = res.error?.context?.status;
+    throw new AppError(status === 404 ? 'FUNCTION_UNAVAILABLE' : 'NETWORK', res.error);
+  }
+  if (!res.data?.ok) throw new AppError(res.data?.code || 'UNKNOWN');
+  return res.data;
+}
+
+// Strong temporary password: no look-alike characters (0/O, 1/l/I), at least one of each class.
+export function generatePassword(length = 14) {
+  const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnpqrstuvwxyz', '23456789', '!@#$%&*?'];
+  const all = sets.join('');
+  const rnd = (n) => { const a = new Uint32Array(1); let x; do { crypto.getRandomValues(a); x = a[0]; } while (x >= 4294967296 - (4294967296 % n)); return x % n; };
+  const chars = sets.map((set) => set[rnd(set.length)]);
+  while (chars.length < length) chars.push(all[rnd(all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) { const j = rnd(i + 1); [chars[i], chars[j]] = [chars[j], chars[i]]; }
+  return chars.join('');
+}
+
+export async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast(t('common.copied'), { type: 'success', duration: 2000 }); return true; }
+  catch { toast(t('common.copy') + ': ' + text, { duration: 9000 }); return false; }
 }
