@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /account/
+Disallow: /checkout.html
+Disallow: /order.html
+Disallow: /track.html
+
+# Replace YOUR-DOMAIN.com with the real domain before launch (see DEPLOY.md).
+Sitemap: https://YOUR-DOMAIN.com/sitemap.xml

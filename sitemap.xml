@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Static public pages only. Product pages are dynamic (/product.html?slug=...) and are not listed.
+     Replace YOUR-DOMAIN.com with the real domain before launch (see DEPLOY.md). -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://YOUR-DOMAIN.com/</loc></url>
+  <url><loc>https://YOUR-DOMAIN.com/shop.html</loc></url>
+  <url><loc>https://YOUR-DOMAIN.com/quiz.html</loc></url>
+  <url><loc>https://YOUR-DOMAIN.com/returns.html</loc></url>
+</urlset>

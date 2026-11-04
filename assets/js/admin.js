@@ -1,7 +1,7 @@
 // Admin shell shared by every /admin page: auth + role guard, sidebar / top bar, new-order
 // notifications (Supabase Realtime + sound), small helpers.
 // Real protection is RLS / RPC checks in Postgres; this only decides what the UI shows and redirects.
-import { t, html, raw, toast, errorMessage, toAppError, applyStrings, showLoading, showError, formatDate } from './utils.js';
+import { t, html, raw, toast, errorMessage, toAppError, applyStrings, showLoading, showError, formatDate, installDigitNormalizer } from './utils.js';
 import { requireClient, getSession, run } from './supabase.js';
 import { safeNext } from './account.js';
 
@@ -14,14 +14,36 @@ const ICONS = {
   menu: I('<path d="M4 7h16M4 12h16M4 17h16"/>'),
   bell: I('<path d="M6 9a6 6 0 1 1 12 0c0 6 2 7 2 7H4s2-1 2-7Z"/><path d="M10 20a2 2 0 0 0 4 0"/>'),
   store: I('<path d="M4 9l1-5h14l1 5M4 9v11h16V9M4 9a3 3 0 0 0 5.3 1.9A3 3 0 0 0 12 12a3 3 0 0 0 2.7-1.1A3 3 0 0 0 20 9"/>'),
+  products: I('<path d="M4 8l8-4 8 4v8l-8 4-8-4V8Z"/><path d="m4 8 8 4 8-4M12 12v8"/>'),
+  stock: I('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
+  reviews: I('<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/>'),
+  categories: I('<path d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"/>'),
+  offers: I('<path d="M20 12l-8 8-9-9V3h8l9 9Z"/><circle cx="7.5" cy="7.5" r="1.3"/>'),
+  coupons: I('<path d="M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 1 0-4V4H3v4Z"/><path d="M10 4v16" stroke-dasharray="2 3"/>'),
+  quiz: I('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17v.5"/>'),
+  delivery: I('<path d="M3 6h11v10H3V6Zm11 4h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.7"/><circle cx="17" cy="17.5" r="1.7"/>'),
+  reports: I('<path d="M4 20h16M7 16v-5M12 16V6M17 16v-8"/>'),
+  staff: I('<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6M16 5.5a3 3 0 0 1 0 5.5M18 14.3c1.8.7 3 2.5 3 5.2"/>'),
+  settings: I('<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'),
 };
 
-// Pages appear in the sidebar when built (ready) — later admin pages are added here with their key
-// in strings.admin.nav. `owner: true` hides the entry from staff.
+// Sidebar entries (labels in strings.admin.nav). `owner: true` hides the entry from staff.
 export const NAV = [
-  { key: 'dashboard', href: '/admin/', icon: 'dashboard', ready: true },
-  { key: 'orders', href: '/admin/orders.html', icon: 'orders', ready: true, badge: true },
-];
+  { group: 'main', key: 'dashboard', href: '/admin/', icon: 'dashboard' },
+  { group: 'main', key: 'orders', href: '/admin/orders.html', icon: 'orders', badge: true },
+  { group: 'main', key: 'stock', href: '/admin/stock.html', icon: 'stock' },
+  { group: 'main', key: 'reviews', href: '/admin/reviews.html', icon: 'reviews' },
+  { group: 'catalog', key: 'products', href: '/admin/products.html', icon: 'products', owner: true },
+  { group: 'catalog', key: 'categories', href: '/admin/categories.html', icon: 'categories', owner: true },
+  { group: 'catalog', key: 'offers', href: '/admin/offers.html', icon: 'offers', owner: true },
+  { group: 'catalog', key: 'coupons', href: '/admin/coupons.html', icon: 'coupons', owner: true },
+  { group: 'catalog', key: 'quiz', href: '/admin/quiz.html', icon: 'quiz', owner: true },
+  { group: 'store', key: 'delivery', href: '/admin/delivery.html', icon: 'delivery', owner: true },
+  { group: 'store', key: 'reports', href: '/admin/reports.html', icon: 'reports', owner: true },
+  { group: 'store', key: 'staff', href: '/admin/staff.html', icon: 'staff', owner: true },
+  { group: 'store', key: 'settings', href: '/admin/settings.html', icon: 'settings', owner: true },
+].map((n) => ({ ready: true, ...n }));
+const NAV_GROUPS = ['main', 'catalog', 'store'];
 
 /* ---------- Shared helpers ---------- */
 
@@ -60,6 +82,7 @@ function redirectToLogin() {
 
 export async function initAdmin({ page, ownerOnly = false, shell = true } = {}) {
   document.body.classList.add('admin', 'admin-pending');
+  installDigitNormalizer();
   const sb = requireClient();
   const session = await getSession();
   if (!session) return redirectToLogin();
@@ -70,7 +93,8 @@ export async function initAdmin({ page, ownerOnly = false, shell = true } = {}) 
   } catch (err) {
     document.body.classList.remove('admin-pending');
     document.body.innerHTML = html`<main class="admin-content"><div class="state state-error" role="alert"><p class="state-title">${t('states.errorTitle')}</p>
-      <p class="state-text">${t('admin.guardError')} ${errorMessage(err)}</p><button class="btn ghost" onclick="location.reload()">${t('common.retry')}</button></div></main>`.toString();
+      <p class="state-text">${t('admin.guardError')} ${errorMessage(err)}</p><button class="btn ghost" data-retry>${t('common.retry')}</button></div></main>`.toString();
+    document.querySelector('[data-retry]').addEventListener('click', () => location.reload());
     return new Promise(() => {});
   }
   if (!staff || !staff.active) {
@@ -109,10 +133,11 @@ function buildShell(c) {
   shell.innerHTML = html`
     <aside class="admin-sidebar" id="admin-sidebar" aria-label="${t('admin.menu')}">
       <div class="admin-brand"><span class="en">${t('meta.brand')}</span><span class="ar">${t('admin.brandSub')}</span></div>
-      <div class="admin-nav-group">${t('admin.navMain')}</div>
-      <nav class="admin-nav">
-        ${links.map((n) => html`<a href="${n.href}" ${raw(n.key === c.page ? 'aria-current="page"' : '')}>${raw(ICONS[n.icon] || '')}<span>${t(`admin.nav.${n.key}`)}</span>${n.badge ? html`<span class="count" data-nav-badge hidden>0</span>` : ''}</a>`)}
-      </nav>
+      ${NAV_GROUPS.map((g) => links.some((n) => n.group === g) ? html`
+        <div class="admin-nav-group">${t(`admin.navGroup.${g}`)}</div>
+        <nav class="admin-nav">
+          ${links.filter((n) => n.group === g).map((n) => html`<a href="${n.href}" ${raw(n.key === c.page ? 'aria-current="page"' : '')}>${raw(ICONS[n.icon] || '')}<span>${t(`admin.nav.${n.key}`)}</span>${n.badge ? html`<span class="count" data-nav-badge hidden>0</span>` : ''}</a>`)}
+        </nav>` : '')}
       <div class="admin-nav-group">${t('admin.navShop')}</div>
       <nav class="admin-nav"><a href="/" target="_blank" rel="noopener">${raw(ICONS.store)}<span>${t('meta.brand')}</span></a></nav>
       <div class="admin-sidebar-foot">
@@ -255,26 +280,74 @@ function startRealtime(c) {
     .subscribe((status) => setLive(status === 'SUBSCRIBED'));
 }
 
+// "2026-10-26T14:30" typed in Asia/Amman → ISO instant (and back), without a hard-coded UTC offset.
+export function ammanLocalToISO(local) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(local));
+  if (!m) return null;
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Amman', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric',
+  }).formatToParts(new Date(guess)).map((x) => [x.type, x.value]));
+  const asUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute));
+  return new Date(guess - (asUtc - guess)).toISOString();
+}
+export function isoToAmmanLocal(iso) {
+  if (!iso) return '';
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Amman', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+// Staff display names for accountability (staff_names RPC: id + name only). → Map(user_id → name)
+let namesPromise = null;
+export function loadStaffNames() {
+  if (!namesPromise) {
+    namesPromise = ctx.sb.rpc('staff_names').then(({ data, error }) => {
+      if (error) throw error;
+      return new Map((data || []).map((r) => [r.user_id, r.display_name]));
+    }).catch((err) => { console.warn('[admin] staff names', err); return new Map(); });
+  }
+  return namesPromise;
+}
+// "أنت (سارة)" for the signed-in user, the name for others, a role-free fallback when unknown.
+export function whoName(names, userId) {
+  if (!userId) return t('admin.detail.bySystem');
+  const name = names.get(userId) || t('admin.detail.byTeam');
+  return userId === ctx?.userId ? `${t('admin.detail.byYou')} (${name})` : name;
+}
+
 // Modal with a form body. Resolves with the FormData when confirmed, or null when dismissed.
-export function formDialog({ title, body, confirmLabel = t('common.confirm'), danger = false }) {
+// validate(form) may show field errors (setErr) and return false to keep the dialog open.
+// onOpen(form) runs after the dialog is shown (wire live previews, focus, etc.).
+export function formDialog({ title, body, confirmLabel = t('common.confirm'), danger = false, large = false, validate = null, onOpen = null }) {
   return new Promise((resolve) => {
     const dialog = document.createElement('dialog');
-    dialog.className = 'modal';
+    dialog.className = `modal${large ? ' lg' : ''}`;
     dialog.setAttribute('aria-labelledby', 'fd-title');
     dialog.innerHTML = html`
-      <form method="dialog">
+      <form method="dialog" novalidate>
         <div class="modal-head"><h2 class="modal-title" id="fd-title">${title}</h2></div>
-        <div class="modal-body form">${body}</div>
+        <div class="modal-body form">${body}<p class="form-error" data-dialog-error role="alert"></p></div>
         <div class="modal-foot">
           <button type="submit" value="cancel" class="btn ghost sm">${t('common.cancel')}</button>
           <button type="submit" value="ok" class="btn ${danger ? 'danger' : 'primary'} sm">${confirmLabel}</button>
         </div>
       </form>`.toString();
     const form = dialog.querySelector('form');
+    form.addEventListener('submit', (e) => {
+      if (e.submitter?.value !== 'ok') return;
+      if (validate && validate(form) === false) {
+        e.preventDefault();
+        form.querySelector('[aria-invalid="true"]')?.focus();
+      }
+    });
     dialog.addEventListener('close', () => { resolve(dialog.returnValue === 'ok' ? new FormData(form) : null); dialog.remove(); });
     dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close('cancel'); });
     document.body.append(dialog);
     dialog.showModal();
+    if (onOpen) onOpen(form);
   });
 }
 

@@ -2,7 +2,7 @@
 // Staff: status changes (allowed transitions only), restock tick on returns, internal notes, WhatsApp, print.
 // Owner additionally: CliQ receipt viewer (signed URLs), verify / reject payment, mark refunded.
 // Every rule is enforced again in Postgres (update_order_status / verify_payment / mark_refunded).
-import { initAdmin, formDialog, isOverdueCliq } from '../admin.js';
+import { initAdmin, formDialog, isOverdueCliq, loadStaffNames, whoName } from '../admin.js';
 import { t, html, raw, ltr, formatPrice, formatDate, formatPhone, getParam, showLoading, showError, setButtonLoading,
          confirmDialog, toast, errorMessage, toAppError } from '../utils.js';
 import { rpc, run } from '../supabase.js';
@@ -24,6 +24,7 @@ const NEXT = {
 const WA_ORDER = ['new', 'confirmed', 'with_courier', 'delivered', 'cancelled', 'returned'];
 let order = null;
 let waTemplate = null;
+let names = new Map();
 
 const collectAmount = (o) => (o.payment_status === 'paid' ? 0 : Number(o.total));
 const cliqWaiting = (o) => o.payment_method === 'cliq' && ['awaiting_transfer', 'awaiting_verification'].includes(o.payment_status);
@@ -34,6 +35,7 @@ async function load() {
   if (!id || !UUID.test(id)) { notFound(); return; }
   showLoading(root);
   try {
+    names = await loadStaffNames();
     const row = await run(ctx.sb.from('orders')
       .select('*, order_items(*), order_status_history(*), order_notes(*)').eq('id', id).maybeSingle());
     if (!row) { notFound(); return; }
@@ -55,8 +57,7 @@ function notFound() {
 
 function whoLabel(row) {
   if (row.by_customer) return t('admin.detail.byCustomer');
-  if (!row.changed_by) return t('admin.detail.bySystem');
-  return row.changed_by === ctx.userId ? t('admin.detail.byYou') : t('admin.detail.byTeam');
+  return whoName(names, row.changed_by);
 }
 
 function historyHtml(o) {
@@ -152,7 +153,7 @@ function notesPanel(o) {
         ${notes.length ? html`<ul style="list-style:none;margin:0 0 14px;padding:0;display:grid;gap:10px">${notes.map((n) => html`
           <li class="card soft" style="padding:12px 14px"><div style="white-space:pre-line">${n.body}</div>
             <div class="cell-sub" style="display:flex;justify-content:space-between;gap:8px;margin-top:6px">
-              <span>${formatDate(n.created_at)} · ${n.created_by === ctx.userId ? t('admin.detail.byYou') : t('admin.detail.byTeam')}</span>
+              <span>${formatDate(n.created_at)} · ${whoName(names, n.created_by)}</span>
               ${n.created_by === ctx.userId || ctx.isOwner ? html`<button type="button" class="btn link" data-note-delete="${n.id}">${t('admin.detail.noteDelete')}</button>` : ''}</div></li>`)}</ul>`
           : html`<p class="hint">${t('admin.detail.notesEmpty')}</p>`}
         <form data-note-form novalidate class="form">

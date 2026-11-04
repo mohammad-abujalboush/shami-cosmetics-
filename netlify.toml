@@ -1,0 +1,47 @@
+# Build copies only public files into /dist (see scripts/build.js).
+[build]
+  command = "node scripts/build.js"
+  publish = "dist"
+
+# Replace the project ref below if the Supabase project ever changes (also in /assets/js/config.js).
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://dsqnjbeybzmqisojagdl.supabase.co; connect-src 'self' https://dsqnjbeybzmqisojagdl.supabase.co wss://dsqnjbeybzmqisojagdl.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+
+# Order pages carry a secret token in the URL: never send it as a referrer, never cache it.
+[[headers]]
+  for = "/order.html"
+  [headers.values]
+    Referrer-Policy = "no-referrer"
+    Cache-Control = "no-store"
+
+[[headers]]
+  for = "/admin/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-store"
+
+# Cached assets. No build step means no content hashes in file names, so use a short
+# max-age with revalidation: edits show up within minutes, repeat visits stay fast.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/assets/img/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Netlify serves /404.html automatically for unknown paths.

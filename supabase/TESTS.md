@@ -988,7 +988,8 @@ declare
     'normalize_phone', 'slugify', 'normalize_tags', 'normalize_person_name', 'is_valid_person_name'];
   v_auth_fns text[] := v_anon_fns || array[
     'cancel_my_order', 'update_order_status', 'verify_payment', 'mark_refunded', 'adjust_stock',
-    'add_staff', 'remove_staff', 'list_staff', 'get_admin_settings', 'dashboard_stats', 'staff_overview'];
+    'add_staff', 'remove_staff', 'list_staff', 'get_admin_settings', 'dashboard_stats', 'staff_overview',
+    'staff_names', 'set_staff_active', 'coupon_stats', 'sales_report'];
   v_anon_read text[] := array[
     'settings', 'governorates', 'categories', 'products', 'product_images', 'product_variants',
     'offers', 'reviews', 'quiz_questions', 'quiz_options', 'catalog_products'];
@@ -1336,6 +1337,87 @@ begin
                                     and tablename in ('settings', 'coupons', 'staff', 'order_notes', 'profiles', 'addresses', 'order_status_history')),
                       'no other private table is published to Realtime');
 end $$;
+rollback;
+```
+
+---
+
+## 18. Admin pages: staff names, staff activation, coupon stats, sales report
+
+```sql
+begin;
+select test.fixture();
+
+-- staff_names: staff and owner only, id + display name only
+select test.login(null);
+select test.expect_sqlstate($$select staff_names()$$, '42501');
+select test.login('00000000-0000-0000-0000-00000000000c');  -- customer
+select test.expect_error($$select staff_names()$$, 'NOT_AUTHORIZED');
+select test.login('00000000-0000-0000-0000-00000000000b');  -- staff
+do $$
+declare r jsonb;
+begin
+  r := staff_names();
+  perform test.assert(jsonb_array_length(r) >= 2, 'staff_names lists staff members');
+  perform test.assert(not exists (select 1 from jsonb_array_elements(r) e
+                                  where (select array_agg(k order by k) from jsonb_object_keys(e) k) <> array['display_name', 'user_id']),
+                      'staff_names exposes only user_id + display_name (no email, no role)');
+  perform test.assert(not exists (select 1 from jsonb_array_elements(r) e where btrim(e->>'display_name') = ''), 'every staff member has a display name');
+  perform test.assert(exists (select 1 from jsonb_array_elements(r) e where e->>'user_id' = '00000000-0000-0000-0000-00000000000a'), 'owner is listed too');
+end $$;
+-- staff can't call the owner functions
+select test.expect_error($$select set_staff_active('00000000-0000-0000-0000-00000000000b', false)$$, 'NOT_AUTHORIZED');
+select test.expect_error($$select coupon_stats()$$, 'NOT_AUTHORIZED');
+select test.expect_error($$select sales_report(current_date - 7, current_date)$$, 'NOT_AUTHORIZED');
+
+-- set_staff_active
+select test.login('00000000-0000-0000-0000-00000000000a');  -- owner
+select test.expect_error($$select set_staff_active('00000000-0000-0000-0000-00000000000a', false)$$, 'CANNOT_REMOVE_SELF');
+select test.expect_error($$select set_staff_active(gen_random_uuid(), true)$$, 'USER_NOT_FOUND');
+do $$
+begin
+  perform set_staff_active('00000000-0000-0000-0000-00000000000b', false);
+  perform test.assert(not (select active from staff where user_id = '00000000-0000-0000-0000-00000000000b'), 'owner deactivates staff (row kept)');
+  perform test.assert(exists (select 1 from jsonb_array_elements(staff_names()) e where e->>'user_id' = '00000000-0000-0000-0000-00000000000b'),
+                      'a deactivated member keeps their name in staff_names');
+end $$;
+select test.login('00000000-0000-0000-0000-00000000000b');  -- deactivated staff
+select test.expect_error($$select staff_overview()$$, 'NOT_AUTHORIZED');
+select test.login('00000000-0000-0000-0000-00000000000a');
+select set_staff_active('00000000-0000-0000-0000-00000000000b', true);
+select test.login('00000000-0000-0000-0000-00000000000b');
+select test.assert((staff_overview()->>'new_count') ~ '^[0-9]+$', 'reactivated staff works again');
+
+-- coupon_stats
+select test.login('00000000-0000-0000-0000-00000000000a');
+do $$
+declare r jsonb;
+begin
+  r := coupon_stats();
+  perform test.assert(jsonb_array_length(r) = (select count(*) from coupons), 'coupon_stats has one row per coupon');
+  perform test.assert(not exists (select 1 from jsonb_array_elements(r) e where (e->>'orders')::int < 0), 'coupon_stats counts are sane');
+end $$;
+
+-- sales_report
+do $$
+declare r jsonb; d jsonb;
+begin
+  r := sales_report(current_date - 6, current_date);
+  d := dashboard_stats(current_date - 6, current_date);
+  perform test.assert(jsonb_array_length(r->'by_day') = 7, 'sales_report has one row per day (7)');
+  perform test.assert((r->'totals'->>'revenue')::numeric = (d->>'revenue')::numeric, 'sales_report revenue matches dashboard_stats');
+  perform test.assert((r->'totals'->>'orders')::int = (d->>'orders_total')::int, 'sales_report order count matches dashboard_stats');
+  perform test.assert((select coalesce(sum((e->>'revenue')::numeric), 0) from jsonb_array_elements(r->'by_day') e) = (r->'totals'->>'revenue')::numeric,
+                      'daily revenue adds up to the total');
+  perform test.assert((select coalesce(sum((e->>'revenue')::numeric), 0) from jsonb_array_elements(r->'by_governorate') e) = (r->'totals'->>'revenue')::numeric,
+                      'governorate revenue adds up to the total');
+  perform test.assert((select coalesce(sum((e->>'revenue')::numeric), 0) from jsonb_array_elements(r->'by_payment_method') e) = (r->'totals'->>'revenue')::numeric,
+                      'payment-method revenue adds up to the total');
+end $$;
+select test.expect_error($$select sales_report(current_date, current_date - 1)$$, 'INVALID_DATE_RANGE');
+select test.expect_error($$select sales_report(current_date - 400, current_date)$$, 'INVALID_DATE_RANGE');
+select test.login(null);
+select test.expect_sqlstate($$select sales_report(current_date - 1, current_date)$$, '42501');
 rollback;
 ```
 

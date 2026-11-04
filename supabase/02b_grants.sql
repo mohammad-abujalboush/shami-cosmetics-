@@ -119,7 +119,11 @@ grant execute on function
   list_staff(),
   get_admin_settings(),
   dashboard_stats(date, date),
-  staff_overview()
+  staff_overview(),
+  staff_names(),
+  set_staff_active(uuid, boolean),
+  coupon_stats(),
+  sales_report(date, date)
 to authenticated;
 
 -- From 04_storage.sql
