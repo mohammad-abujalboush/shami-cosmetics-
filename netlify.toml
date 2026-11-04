@@ -3,11 +3,13 @@
   command = "node scripts/build.js"
   publish = "dist"
 
+# connect-src: Supabase REST/auth/storage/functions (https), realtime (wss), and jsDelivr (supabase-js ships
+# //# sourceMappingURL comments; the browser fetches those maps as connections).
 # Replace the project ref below if the Supabase project ever changes (also in /assets/js/config.js).
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://dsqnjbeybzmqisojagdl.supabase.co; connect-src 'self' https://dsqnjbeybzmqisojagdl.supabase.co wss://dsqnjbeybzmqisojagdl.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://dsqnjbeybzmqisojagdl.supabase.co; connect-src 'self' https://dsqnjbeybzmqisojagdl.supabase.co wss://dsqnjbeybzmqisojagdl.supabase.co https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "DENY"
     Referrer-Policy = "strict-origin-when-cross-origin"

@@ -17,7 +17,7 @@ using the **current** TESTS.md. After a clean run, clear the list.
 11. **18**: Admin pages: staff names, activation, coupon stats, sales report (new; needs `upgrade_06_admin_pages.sql` first)
 12. **Step 99**: remove the test helpers
 
-Upgrades to run first (existing project, in order): `upgrade_04_cod_refund.sql`, `upgrade_05_admin_core.sql` (done 2026-10-26), `upgrade_06_admin_pages.sql` (pending), `upgrade_07_staff_profiles.sql` (pending, + Edge Function `admin-users`). Fresh installs already contain all of them.
+Upgrades to run first (existing project, in order): `upgrade_04_cod_refund.sql`, `upgrade_05_admin_core.sql` (done 2026-10-26), `upgrade_06_admin_pages.sql` (pending), `upgrade_07_staff_profiles.sql` + `upgrade_08_profile_rpc.sql` (pending, + Edge Function `admin-users`). Fresh installs already contain all of them.
 
 ## Log
 - 2026-09-27: 5, 6, 9, 12 failed on the live project, but that run used a stale TESTS.md (old `list_staff() = 3` check, old `expect_error` in 5). Rerun with the current file.

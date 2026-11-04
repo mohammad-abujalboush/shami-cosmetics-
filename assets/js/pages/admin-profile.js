@@ -83,7 +83,7 @@ async function saveInfo(e) {
     ['p-phone', phoneRaw && !isValidPhone(phoneRaw) ? t('validation.phoneInvalid') : ''],
   ])) return;
   await withSave(form.querySelector('button[type="submit"]'), async () => {
-    await run(ctx.sb.from('profiles').upsert({ id: ctx.userId, full_name: name, phone: phone || null }));
+    await rpc('update_my_profile', { p_full_name: name, p_phone: phone || '' });
   });
 }
 
